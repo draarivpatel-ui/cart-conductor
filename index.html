@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CartConductor: Multi-Vendor Agentic Checkout, Split-Capture and Saga Recovery</title>
+  <meta name="description" content="Deterministic branch-and-bound multi-merchant cart optimizer, Pareto frontier analyzer, and PayPal Orders v2 compensating saga simulator.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="ledger-header">
+    <div class="header-inner">
+      <div class="brand-block">
+        <div class="ledger-ref">PayPal Orders v2 Multi-Unit Clearing &amp; Saga Ledger</div>
+        <h1 class="brand-title">CartConductor</h1>
+        <p class="brand-subtitle">Multi-Vendor Agentic Checkout, Split-Capture &amp; Failure-Recovery Orchestrator</p>
+      </div>
+      <div class="header-badges">
+        <div class="spec-pill">
+          <span class="spec-label">Solver Engine</span>
+          <span class="spec-value" id="badge-solver-nodes">Branch-and-Bound + Pareto</span>
+        </div>
+        <div class="spec-pill">
+          <span class="spec-label">Receipt Integrity</span>
+          <span class="spec-value" id="badge-chain-status">SHA-256 Verified</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="ledger-main">
+    <!-- Control & Constraint Bar -->
+    <section class="panel control-panel" aria-labelledby="heading-controls">
+      <div class="panel-header">
+        <h2 id="heading-controls" class="panel-title">1. Buyer Agent Procurement Mandate &amp; Solver Constraints</h2>
+        <p class="panel-note">Select an autonomous procurement scenario, optimization objective, and hard SLA or budget ceiling across the 8-merchant catalog.</p>
+      </div>
+
+      <div class="controls-grid">
+        <div class="control-field">
+          <label for="select-scenario" class="field-label">Procurement Mandate</label>
+          <select id="select-scenario" class="field-input">
+            <option value="SCENARIO_ROBOTICS_RIG">Autonomous Edge Vision &amp; Servo Rig (4 SKUs)</option>
+            <option value="SCENARIO_BIO_BENCH">Cold-Chain Microfluidics Assay Bench (4 SKUs)</option>
+            <option value="SCENARIO_RACK_CLUSTER">High-Density Inference Switch &amp; Telemetry Pod (4 SKUs)</option>
+          </select>
+        </div>
+
+        <div class="control-field">
+          <label for="select-strategy" class="field-label">Optimization Objective</label>
+          <select id="select-strategy" class="field-input">
+            <option value="LOWEST_COST">Lowest Total Landed Cost</option>
+            <option value="FASTEST_DELIVERY">Fastest Guaranteed Delivery</option>
+            <option value="FEWEST_SHIPMENTS">Fewest Split Shipments</option>
+          </select>
+        </div>
+
+        <div class="control-field">
+          <label for="input-budget" class="field-label">Hard Budget Cap: <strong id="label-budget-val">$680.00</strong></label>
+          <input id="input-budget" type="range" min="45000" max="110000" step="1000" value="68000" class="field-range">
+        </div>
+
+        <div class="control-field">
+          <label for="input-sla" class="field-label">Max Delivery SLA: <strong id="label-sla-val">48h</strong></label>
+          <input id="input-sla" type="range" min="18" max="60" step="2" value="48" class="field-range">
+        </div>
+      </div>
+
+      <div class="mode-cards-row" id="mode-comparison-cards">
+        <button type="button" class="mode-card" id="btn-mode-lowest-cost" data-strategy="LOWEST_COST">
+          <span class="mode-card-title">Lowest Total Landed Cost</span>
+          <span class="mode-card-metric" id="metric-mode-cost">$0.00</span>
+          <span class="mode-card-meta" id="meta-mode-cost">0h SLA | 0 purchase units</span>
+        </button>
+        <button type="button" class="mode-card" id="btn-mode-fastest" data-strategy="FASTEST_DELIVERY">
+          <span class="mode-card-title">Fastest Guaranteed Delivery</span>
+          <span class="mode-card-metric" id="metric-mode-fast">0h</span>
+          <span class="mode-card-meta" id="meta-mode-fast">$0.00 landed | 0 purchase units</span>
+        </button>
+        <button type="button" class="mode-card" id="btn-mode-fewest" data-strategy="FEWEST_SHIPMENTS">
+          <span class="mode-card-title">Fewest Split Shipments</span>
+          <span class="mode-card-metric" id="metric-mode-ship">0 Units</span>
+          <span class="mode-card-meta" id="meta-mode-ship">$0.00 landed | 0h SLA</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Summary Ledger Metrics -->
+    <section class="kpi-strip" aria-label="Optimization and settlement summary metrics">
+      <article class="kpi-card">
+        <h3 class="kpi-title">Optimized Landed Total</h3>
+        <div class="kpi-value" id="kpi-landed-total">$0.00</div>
+        <div class="kpi-sub" id="kpi-budget-headroom">$0.00 under buyer cap</div>
+      </article>
+      <article class="kpi-card">
+        <h3 class="kpi-title">Savings vs Greedy / Single</h3>
+        <div class="kpi-value kpi-positive" id="kpi-savings-greedy">+$0.00</div>
+        <div class="kpi-sub" id="kpi-savings-single">vs single-vendor baseline</div>
+      </article>
+      <article class="kpi-card">
+        <h3 class="kpi-title">Guaranteed Delivery Window</h3>
+        <div class="kpi-value" id="kpi-delivery-hours">0h</div>
+        <div class="kpi-sub" id="kpi-shipment-splits">0 PayPal purchase_units[]</div>
+      </article>
+      <article class="kpi-card">
+        <h3 class="kpi-title">Joint Clearing Reliability</h3>
+        <div class="kpi-value" id="kpi-reliability">99.0%</div>
+        <div class="kpi-sub" id="kpi-pareto-count">0 feasible / 0 Pareto optimal</div>
+      </article>
+    </section>
+
+    <!-- Workspace Split: Allocation Matrix + Pareto Frontier SVG -->
+    <div class="two-col-layout">
+      <section class="panel" aria-labelledby="heading-matrix">
+        <div class="panel-header">
+          <h2 id="heading-matrix" class="panel-title">2. Multi-Merchant SKU Allocation &amp; Landed Cost Matrix</h2>
+          <p class="panel-note">Exact per-merchant breakdown showing bundle threshold discounts, free-shipping triggers, handling, and tax in integer cents.</p>
+        </div>
+        <div class="table-wrap">
+          <table class="ledger-table" id="table-sku-allocations">
+            <thead>
+              <tr>
+                <th scope="col">SKU &amp; Component</th>
+                <th scope="col">Qty</th>
+                <th scope="col">Assigned Merchant</th>
+                <th scope="col">Unit Price</th>
+                <th scope="col">Line Subtotal</th>
+                <th scope="col">SLA</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-sku-allocations"></tbody>
+          </table>
+        </div>
+
+        <h3 class="sub-heading">PayPal Purchase Unit Settlement Breakdown (By Merchant)</h3>
+        <div class="table-wrap">
+          <table class="ledger-table" id="table-merchant-units">
+            <thead>
+              <tr>
+                <th scope="col">Purchase Unit / Payee</th>
+                <th scope="col">Items Gross</th>
+                <th scope="col">Bundle Disc.</th>
+                <th scope="col">Shipping + Hdl</th>
+                <th scope="col">Tax</th>
+                <th scope="col">Unit Total</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-merchant-units"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="heading-pareto">
+        <div class="panel-header">
+          <h2 id="heading-pareto" class="panel-title">3. Pareto Frontier: Landed Cost vs. Delivery SLA Hours</h2>
+          <p class="panel-note">Every feasible multi-merchant cart plotted against the non-dominated Pareto curve and active buyer selection.</p>
+        </div>
+        <div class="svg-container">
+          <svg id="svg-pareto-chart" viewBox="0 0 620 320" role="img" aria-label="Pareto frontier scatter plot of total landed cost versus maximum delivery hours"></svg>
+        </div>
+        <div class="chart-legend">
+          <span class="legend-item"><span class="swatch swatch-pareto"></span>Pareto Frontier Solution</span>
+          <span class="legend-item"><span class="swatch swatch-selected"></span>Selected Active Plan</span>
+          <span class="legend-item"><span class="swatch swatch-dominated"></span>Dominated Feasible Cart</span>
+        </div>
+
+        <h3 class="sub-heading">8-Merchant Catalog Standing &amp; Policy Rules</h3>
+        <div class="table-wrap">
+          <table class="ledger-table compact-table" id="table-catalog-merchants">
+            <thead>
+              <tr>
+                <th scope="col">Merchant</th>
+                <th scope="col">Reliability</th>
+                <th scope="col">Free Ship At</th>
+                <th scope="col">Bundle Disc.</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-catalog-merchants"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Saga Compensating Transaction Simulator & PayPal Orders v2 Payload Inspector -->
+    <div class="two-col-layout">
+      <section class="panel" aria-labelledby="heading-saga">
+        <div class="panel-header">
+          <h2 id="heading-saga" class="panel-title">4. PayPal Orders v2 Saga &amp; Compensating Fault Simulator</h2>
+          <p class="panel-note">Inject a capture-stage fault on any allocated merchant to watch the saga engine void the failed hold, re-solve the cart, and capture the fallback.</p>
+        </div>
+
+        <div class="saga-controls">
+          <div class="control-field">
+            <label for="select-fault-type" class="field-label">Simulated Capture Fault</label>
+            <select id="select-fault-type" class="field-input">
+              <option value="NONE">Nominal Settlement (Zero Faults)</option>
+              <option value="OUT_OF_STOCK_AT_CAPTURE">Out of Stock at Capture (HTTP 422)</option>
+              <option value="THREE_DS_CHALLENGE_REQUIRED">3DS Challenge Required (HTTP 422)</option>
+              <option value="SHIPPING_SLA_SLIPPAGE">Shipping SLA Slippage (HTTP 409)</option>
+              <option value="PARTIAL_FULFILLMENT">Partial Fulfillment Shortfall (HTTP 206)</option>
+            </select>
+          </div>
+          <div class="control-field">
+            <label for="select-fault-merchant" class="field-label">Fault Target Merchant</label>
+            <select id="select-fault-merchant" class="field-input"></select>
+          </div>
+          <div class="control-field saga-btn-wrap">
+            <button type="button" id="btn-run-saga" class="btn-primary">Execute Atomic Saga</button>
+          </div>
+        </div>
+
+        <div class="saga-banner" id="saga-status-banner">
+          <div class="saga-banner-row">
+            <span class="saga-status-tag" id="saga-status-tag">SETTLED_NOMINAL</span>
+            <span class="saga-delta" id="saga-cost-delta">Delta: $0.00 | 0h</span>
+          </div>
+          <p class="saga-summary-text" id="saga-summary-text"></p>
+          <div class="saga-chain-hash">
+            <span>Receipt Chain Head (SHA-256):</span>
+            <code id="saga-head-hash">00000000</code>
+          </div>
+        </div>
+
+        <ol class="saga-timeline" id="list-saga-timeline" aria-label="Saga execution and compensating transaction log"></ol>
+      </section>
+
+      <section class="panel" aria-labelledby="heading-payload">
+        <div class="panel-header">
+          <h2 id="heading-payload" class="panel-title">5. PayPal Orders v2 Payload &amp; Idempotency Inspector</h2>
+          <p class="panel-note">Schema-verified <code>POST /v2/checkout/orders</code> request with multi-merchant <code>purchase_units[]</code> and deterministic <code>PayPal-Request-Id</code>.</p>
+        </div>
+
+        <div class="inspector-meta-bar">
+          <div class="inspector-kv">
+            <span class="kv-label">Order ID</span>
+            <code class="kv-code" id="inspect-order-id">ORD-PP-0000</code>
+          </div>
+          <div class="inspector-kv">
+            <span class="kv-label">PayPal-Request-Id</span>
+            <code class="kv-code" id="inspect-request-id">00000000-0000</code>
+          </div>
+          <div class="inspector-kv">
+            <span class="kv-label">Schema Check</span>
+            <span class="kv-badge" id="inspect-schema-badge">VALID (0 errors)</span>
+          </div>
+        </div>
+
+        <div class="inspector-tabs">
+          <button type="button" class="tab-btn active" id="tab-btn-primary-order" data-payload-view="PRIMARY_ORDER">Primary Orders v2 JSON</button>
+          <button type="button" class="tab-btn" id="tab-btn-saga-calls" data-payload-view="SAGA_CALLS">Saga REST Sequence</button>
+        </div>
+
+        <pre class="json-viewer" id="pre-paypal-json" tabindex="0" aria-label="PayPal Orders v2 JSON payload"></pre>
+      </section>
+    </div>
+  </main>
+
+  <footer class="ledger-footer">
+    <div class="footer-inner">
+      <span>CartConductor Multi-Vendor Agentic Checkout &amp; Saga Simulator</span>
+      <span>Integer-Cent Deterministic Arithmetic | PayPal Orders v2 Schema</span>
+    </div>
+  </footer>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "cart-conductor",
+  "version": "1.0.0",
+  "description": "CartConductor: Multi-Vendor Agentic Checkout, Split-Capture and Failure-Recovery Orchestrator for PayPal Orders v2",
+  "main": "engine.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {},
+  "author": "Aariv Patel",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "homepage": "https://aariv.me/cart-conductor/"
+}
