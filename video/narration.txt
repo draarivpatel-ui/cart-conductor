@@ -1,0 +1,4 @@
+CartConductor is a multi-merchant agentic checkout optimizer and compensating saga orchestrator built for the PayPal Agentic Commerce Hackathon.
+When a shopping agent sources a multi-item basket across competing merchants, the branch-and-bound solver evaluates shipping thresholds, bundle discounts, and delivery SLAs to plot the Pareto frontier between landed cost, delivery speed, and split shipments.
+During checkout, CartConductor builds a multi-unit PayPal Orders v2 payload and runs an atomic authorization and inventory reservation saga.
+Injecting a live merchant fault automatically voids the failed unit, reroutes the item to the best fallback merchant within the buyer's budget cap, and appends a SHA-256 chained audit receipt.
