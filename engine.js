@@ -760,7 +760,6 @@
     const currentAssignment = new Array(n);
     let nodesExplored = 0;
     let branchesPruned = 0;
-    let bestCostSoFar = Infinity;
 
     function search(depth, runningOptimisticCents) {
       nodesExplored += 1;
@@ -768,9 +767,6 @@
         const evaluated = evaluateAssignment(scenario, currentAssignment, constraints);
         if (evaluated.feasible) {
           feasibleSolutions.push(evaluated);
-          if (evaluated.totalLandedCents < bestCostSoFar) {
-            bestCostSoFar = evaluated.totalLandedCents;
-          }
         }
         return;
       }
