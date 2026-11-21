@@ -4,16 +4,16 @@
   --bg-panel-elevated: #FBF9F5;
   --ink-primary: #141516;
   --ink-secondary: #494C50;
-  --ink-muted: #6C7075;
+  --ink-muted: #5F6469;
   --border-rule: #D3CCC0;
   --border-strong: #141516;
   --navy-settlement: #1B4D8E;
   --green-authorized: #1B6B50;
-  --vermilion-rollback: #C84B31;
+  --vermilion-rollback: #B0412B;
   --amber-warning: #9B6418;
   --font-serif: 'Newsreader', Georgia, serif;
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 *, *::before, *::after {
@@ -254,6 +254,14 @@ body {
   color: var(--ink-primary);
 }
 
+.text-muted {
+  color: var(--ink-muted);
+}
+
+.kpi-value.kpi-negative {
+  color: var(--vermilion-rollback);
+}
+
 .kpi-value.kpi-positive {
   color: var(--green-authorized);
 }
@@ -340,12 +348,12 @@ body {
 }
 
 .badge-vermilion {
-  background-color: rgba(200, 75, 49, 0.15);
+  background-color: rgba(176, 65, 43, 0.15);
   color: var(--vermilion-rollback);
 }
 
 .badge-muted {
-  background-color: rgba(108, 112, 117, 0.14);
+  background-color: rgba(95, 100, 105, 0.14);
   color: var(--ink-secondary);
 }
 
@@ -393,7 +401,7 @@ body {
 }
 
 .swatch-dominated {
-  background-color: #A09A90;
+  background-color: #8A8478;
 }
 
 /* Saga Simulator */
@@ -460,7 +468,7 @@ body {
 }
 
 .saga-status-tag.tag-rolledback {
-  background-color: rgba(200, 75, 49, 0.15);
+  background-color: rgba(176, 65, 43, 0.15);
   color: var(--vermilion-rollback);
 }
 
@@ -632,15 +640,147 @@ body {
   gap: 0.5rem;
 }
 
+/* Deepened analytics: waterfall, sensitivity sweep, diagnostics */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.analytics-card {
+  border-top: 1px solid var(--border-rule);
+  padding: 0.9rem 1rem 1.1rem;
+  min-width: 0;
+}
+
+.analytics-card .sub-heading:first-child {
+  margin-top: 0;
+}
+
+.analytics-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-rule);
+  background-color: var(--bg-ledger);
+}
+
+.analytics-control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  margin-bottom: 0.35rem;
+}
+
+.analytics-control-row label {
+  white-space: nowrap;
+}
+
+.analytics-control-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--navy-settlement);
+}
+
+.analytics-control-row output {
+  min-width: 2ch;
+  text-align: right;
+  color: var(--ink-primary);
+}
+
+.analytics-legend {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+
+.analytics-legend li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.16rem 0;
+  border-bottom: 1px dotted var(--border-rule);
+}
+
+.analytics-legend li span:last-child {
+  color: var(--ink-primary);
+}
+
+.analytics-caption {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  margin: 0.6rem 0 0;
+}
+
+.diagnostics-list {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.diagnostics-list dt {
+  color: var(--ink-muted);
+  margin-top: 0.45rem;
+}
+
+.diagnostics-list dd {
+  margin: 0.05rem 0 0;
+  color: var(--ink-primary);
+  font-size: 0.82rem;
+}
+
+.sub-heading.small {
+  font-size: 0.85rem;
+  margin-top: 0.9rem;
+}
+
 @media (max-width: 1080px) {
   .controls-grid,
   .kpi-strip {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .two-col-layout {
-    grid-template-columns: 1fr;
+  .two-col-layout,
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .saga-controls {
     grid-template-columns: 1fr;
+  }
+}
+
+.panel,
+.control-field,
+.mode-card,
+.kpi-card {
+  min-width: 0;
+}
+
+.field-input,
+.field-range {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .controls-grid,
+  .mode-cards-row,
+  .saga-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mode-card,
+  .kpi-card {
+    overflow-wrap: anywhere;
+  }
+  .field-input {
+    font-size: 1rem;
   }
 }

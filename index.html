@@ -5,18 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CartConductor: Multi-Vendor Agentic Checkout, Split-Capture and Saga Recovery</title>
   <meta name="description" content="Deterministic branch-and-bound multi-merchant cart optimizer, Pareto frontier analyzer, and PayPal Orders v2 compensating saga simulator.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="ledger-header">
     <div class="header-inner">
       <div class="brand-block">
-        <div class="ledger-ref">PayPal Orders v2 Multi-Unit Clearing &amp; Saga Ledger</div>
         <h1 class="brand-title">CartConductor</h1>
-        <p class="brand-subtitle">Multi-Vendor Agentic Checkout, Split-Capture &amp; Failure-Recovery Orchestrator</p>
       </div>
       <div class="header-badges">
         <div class="spec-pill">
@@ -184,6 +180,38 @@
         </div>
       </section>
     </div>
+
+    <!-- Deepened Analytics: Cost Waterfall, Budget Sensitivity & Solver Diagnostics -->
+    <section class="panel" aria-labelledby="heading-analytics">
+      <div class="panel-header">
+        <h2 id="heading-analytics" class="panel-title">Cost and solver diagnostics</h2>
+        <p class="panel-note">An exact additive decomposition of the selected landed cost, a re-solved sweep of the buyer budget cap, and invariant metrics from the branch-and-bound search.</p>
+      </div>
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <h3 class="sub-heading">Additive Cost Waterfall</h3>
+          <svg id="svg-cost-waterfall" viewBox="0 0 480 240" role="img" aria-label="Stacked waterfall chart of item subtotals, discounts, shipping, handling and tax"></svg>
+          <ul class="analytics-legend" id="list-cost-waterfall"></ul>
+          <p class="analytics-caption" id="caption-cost-waterfall">Reconstructs the landed total exactly in integer cents.</p>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-control-row">
+            <label for="range-sensitivity-steps">Sensitivity steps</label>
+            <input type="range" id="range-sensitivity-steps" min="4" max="24" step="1" value="12" />
+            <output id="output-sensitivity-steps" for="range-sensitivity-steps">12</output>
+          </div>
+          <h3 class="sub-heading">Budget Headroom Sweep</h3>
+          <svg id="svg-sensitivity" viewBox="0 0 480 240" role="img" aria-label="Line chart of feasible allocation counts across budget caps"></svg>
+          <p class="analytics-caption" id="caption-sensitivity">First sampled feasible cap and minimum sampled cost from real solver runs.</p>
+        </div>
+        <div class="analytics-card">
+          <h3 class="sub-heading">Solver Invariant Diagnostics</h3>
+          <dl class="diagnostics-list" id="list-diagnostics"></dl>
+          <h4 class="sub-heading small">Pareto Crowding Distance</h4>
+          <ul class="analytics-legend" id="list-crowding"></ul>
+        </div>
+      </div>
+    </section>
 
     <!-- Saga Compensating Transaction Simulator & PayPal Orders v2 Payload Inspector -->
     <div class="two-col-layout">

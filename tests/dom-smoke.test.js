@@ -43,7 +43,7 @@ test('DOM 02: styles.css defines the Stripe Press / FT ledger color tokens', () 
   assert.match(css, /--ink-primary:\s*#141516/i);
   assert.match(css, /--navy-settlement:\s*#1B4D8E/i);
   assert.match(css, /--green-authorized:\s*#1B6B50/i);
-  assert.match(css, /--vermilion-rollback:\s*#C84B31/i);
+  assert.match(css, /--vermilion-rollback:\s*#B0412B/i);
 });
 
 test('DOM 03: package.json has zero external dependencies and uses node --test', () => {
@@ -181,7 +181,7 @@ test('DOM 13: anti-slop check verifies zero em-dashes, zero en-dashes, and zero 
     const rel = path.relative(root, f);
     assert.equal(content.includes('\u2014'), false, 'Em-dash found in ' + rel);
     assert.equal(content.includes('\u2013'), false, 'En-dash found in ' + rel);
-    assert.equal(/someone@gmail\.com/i.test(content), false, 'Forbidden email found in ' + rel);
+    assert.equal(/[a-z0-9._%+-]+@(?:gmail|outlook|yahoo|icloud|hotmail)\.[a-z]+/i.test(content), false, 'Forbidden email found in ' + rel);
   }
 });
 
@@ -234,4 +234,89 @@ test('DOM 18: inspector metadata displays deterministic Order ID, PayPal-Request
   assert.match(el('inspect-order-id').textContent, /^ORD-PP-[0-9A-F]{12}$/);
   assert.match(el('inspect-request-id').textContent, /^[0-9a-f-]{36}$/);
   assert.match(el('inspect-schema-badge').textContent, /^VALID \(\d+ units, \$\d+\.\d{2}\)$/);
+});
+
+/* ---------- Deepened analytics UI: waterfall, sensitivity, diagnostics ---------- */
+
+test('DOM 19: index.html declares the analytics section, SVGs, slider and diagnostics lists', () => {
+  for (const id of ['heading-analytics', 'svg-cost-waterfall', 'list-cost-waterfall', 'caption-cost-waterfall', 'range-sensitivity-steps', 'output-sensitivity-steps', 'svg-sensitivity', 'caption-sensitivity', 'list-diagnostics', 'list-crowding']) {
+    assert.ok(html.includes('id="' + id + '"'), 'Missing analytics DOM id ' + id);
+  }
+  assert.match(html, /aria-labelledby="heading-analytics"/);
+  assert.match(html, /type="range" id="range-sensitivity-steps"/);
+});
+
+test('DOM 20: styles.css defines the responsive analytics grid and card styling', () => {
+  assert.match(css, /\.analytics-grid\s*\{/);
+  assert.match(css, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.analytics-card svg\s*\{/);
+  assert.match(css, /\.diagnostics-list\s*\{/);
+});
+
+test('DOM 21: cost waterfall SVG renders five labeled bars and an exact landed total line', () => {
+  const { el } = mount();
+  const svg = el('svg-cost-waterfall').innerHTML;
+  const rects = svg.match(/<rect /g) || [];
+  assert.equal(rects.length, 5);
+  assert.match(svg, /landed \$/);
+  assert.match(svg, /<title>/);
+  const legend = el('list-cost-waterfall').innerHTML;
+  for (const label of ['Item subtotals', 'Bundle discounts', 'Shipping', 'Handling', 'Regional tax']) {
+    assert.ok(legend.includes(label), 'waterfall legend missing ' + label);
+  }
+  assert.match(el('caption-cost-waterfall').textContent, /reconstruct/i);
+});
+
+test('DOM 22: sensitivity SVG renders a feasible count polyline, cost polyline and one dot per step', () => {
+  const { el } = mount();
+  const svg = el('svg-sensitivity').innerHTML;
+  assert.match(svg, /<polyline /);
+  assert.ok((svg.match(/<circle /g) || []).length >= 12, 'one marker per sensitivity step');
+  assert.match(el('caption-sensitivity').textContent, /First sampled feasible cap/);
+  assert.match(el('caption-sensitivity').textContent, /Minimum sampled cost/);
+});
+
+test('DOM 23: diagnostics list reports nodes, prunes, frontier size and savings rates', () => {
+  const { el } = mount();
+  const d = el('list-diagnostics').innerHTML;
+  for (const label of ['Nodes explored', 'Branches pruned', 'Feasible allocations', 'Pareto frontier size', 'Dominance compression', 'Savings vs greedy', 'Savings vs single vendor']) {
+    assert.ok(d.includes(label), 'diagnostics missing ' + label);
+  }
+  assert.match(d, /%/);
+  assert.ok((el('list-crowding').innerHTML.match(/<li>/g) || []).length > 0, 'crowding rows render');
+});
+
+test('DOM 24: sensitivity slider changes step count, caption and redraws the chart deterministically', () => {
+  const { ctl, el } = mount();
+  const before = el('svg-sensitivity').innerHTML;
+  const range = el('range-sensitivity-steps');
+  range.value = '6';
+  range.dispatch('input');
+  assert.equal(ctl.state.sensitivitySteps, 6);
+  assert.equal(el('output-sensitivity-steps').textContent, '6');
+  assert.equal((el('svg-sensitivity').innerHTML.match(/<circle /g) || []).length, 6);
+  assert.notEqual(el('svg-sensitivity').innerHTML, before);
+  assert.match(el('caption-sensitivity').textContent, /across 6 re-solves/);
+});
+
+test('DOM 25: analytics panels render an infeasible state without throwing', () => {
+  const { ctl, el } = mount();
+  el('input-budget').value = '1';
+  el('input-budget').dispatch('input');
+  assert.equal(ctl.state.solverResult.feasible, false);
+  assert.match(el('svg-cost-waterfall').innerHTML, /No feasible plan/);
+  assert.match(el('list-diagnostics').innerHTML, /Feasible allocations/);
+  assert.equal(el('list-cost-waterfall').innerHTML, '');
+});
+
+test('DOM 26: changing strategy and scenario recomputes waterfall and diagnostics consistently', () => {
+  const { ctl, el } = mount();
+  ctl.setStrategy('FASTEST_DELIVERY');
+  const svgAfterStrategy = el('svg-cost-waterfall').innerHTML;
+  assert.match(svgAfterStrategy, /landed \$/);
+  ctl.selectScenario('SCENARIO_BIO_BENCH');
+  const wf = E.costWaterfall(ctl.state.solverResult.recommended);
+  assert.equal(wf.ok, true);
+  assert.match(el('svg-cost-waterfall').innerHTML, /landed \$/);
+  assert.match(el('list-diagnostics').innerHTML, /Nodes explored/);
 });

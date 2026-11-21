@@ -34,7 +34,8 @@
         out.push(c);
       } else if (c < 0x800) {
         out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
-      } else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) {
+      } else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length &&
+        s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) < 0xe000) {
         const c2 = s.charCodeAt(++i);
         const cp = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
         out.push(
@@ -43,6 +44,8 @@
           0x80 | ((cp >> 6) & 0x3f),
           0x80 | (cp & 0x3f)
         );
+      } else if (c >= 0xd800 && c < 0xe000) {
+        out.push(0xef, 0xbf, 0xbd);
       } else {
         out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
       }
@@ -122,8 +125,8 @@
   /* ---------- Currency & Formatting Helpers ---------- */
 
   function centsToDollars(cents) {
-    if (typeof cents !== 'number' || !Number.isFinite(cents)) {
-      throw new TypeError('centsToDollars requires a finite integer');
+    if (!Number.isSafeInteger(cents)) {
+      throw new TypeError('centsToDollars requires a safe integer');
     }
     const rounded = Math.round(cents);
     const sign = rounded < 0 ? '-' : '';
@@ -525,6 +528,24 @@
 
   /* ---------- Single Assignment Cost & Constraint Evaluator ---------- */
 
+  function normalizeExcludedMerchants(value) {
+    if (value == null) return new Set();
+    if (typeof value === 'string') return new Set([value]);
+    if (typeof value[Symbol.iterator] === 'function') return new Set(value);
+    throw new Error('excludedMerchants must be a merchant id string or an iterable of merchant ids');
+  }
+
+  function isValidOfferData(offer) {
+    return offer &&
+      Number.isSafeInteger(offer.unitPriceCents) && offer.unitPriceCents >= 0 &&
+      Number.isSafeInteger(offer.stock) && offer.stock >= 0 &&
+      Number.isFinite(offer.deliveryHours) && offer.deliveryHours >= 0;
+  }
+
+  function isValidItemQty(qty) {
+    return Number.isSafeInteger(qty) && qty > 0;
+  }
+
   /**
    * Evaluates a specific item-to-merchant assignment vector.
    * assignment is an array of merchantIds corresponding to scenario.items[0..N-1].
@@ -537,19 +558,20 @@
       throw new Error('assignment length must match scenario.items length');
     }
 
-    const slaHours = constraints && typeof constraints.maxSlaHours === 'number'
+    const slaHours = constraints && Number.isFinite(constraints.maxSlaHours)
       ? constraints.maxSlaHours
       : scenario.defaultSlaHours;
-    const budgetCents = constraints && typeof constraints.budgetCents === 'number'
+    const budgetCents = constraints && Number.isFinite(constraints.budgetCents)
       ? constraints.budgetCents
       : scenario.defaultBudgetCents;
-    const minReliability = constraints && typeof constraints.minReliability === 'number'
+    const minReliability = constraints && Number.isFinite(constraints.minReliability)
       ? constraints.minReliability
       : scenario.defaultMinReliability;
-    const excludedMerchants = new Set((constraints && constraints.excludedMerchants) || []);
+    const excludedMerchants = normalizeExcludedMerchants(constraints && constraints.excludedMerchants);
 
     const groups = new Map();
     const itemAllocations = [];
+    const stockTally = new Map();
     let maxDeliveryHours = 0;
     let jointReliability = 1;
     let minMerchantReliability = 1;
@@ -557,6 +579,12 @@
     for (let i = 0; i < scenario.items.length; i++) {
       const item = scenario.items[i];
       const merchantId = assignment[i];
+      if (!item || !Array.isArray(item.offers)) {
+        return { feasible: false, reason: 'INVALID_ITEM_DATA', failedMerchantId: merchantId };
+      }
+      if (!isValidItemQty(item.qty)) {
+        return { feasible: false, reason: 'INVALID_ITEM_QUANTITY', failedMerchantId: merchantId, sku: item.sku };
+      }
       if (excludedMerchants.has(merchantId)) {
         return { feasible: false, reason: 'EXCLUDED_MERCHANT', failedMerchantId: merchantId };
       }
@@ -571,9 +599,15 @@
       if (!offer) {
         return { feasible: false, reason: 'NO_OFFER', failedMerchantId: merchantId, sku: item.sku };
       }
-      if (offer.stock < item.qty) {
+      if (!isValidOfferData(offer)) {
+        return { feasible: false, reason: 'INVALID_OFFER_DATA', failedMerchantId: merchantId, sku: item.sku };
+      }
+      const stockKey = merchantId + '|' + item.sku;
+      const allocatedUnits = (stockTally.get(stockKey) || 0) + item.qty;
+      if (offer.stock < allocatedUnits) {
         return { feasible: false, reason: 'INSUFFICIENT_STOCK', failedMerchantId: merchantId, sku: item.sku };
       }
+      stockTally.set(stockKey, allocatedUnits);
       if (offer.deliveryHours > slaHours) {
         return { feasible: false, reason: 'SLA_EXCEEDED', failedMerchantId: merchantId, sku: item.sku };
       }
@@ -588,7 +622,7 @@
           merchant,
           merchantId,
           lines: [],
-          distinctSkuCount: 0,
+          skus: new Set(),
           totalUnits: 0,
           itemSubtotalCents: 0,
           maxDeliveryHours: 0
@@ -613,7 +647,7 @@
         merchantName: merchant.name
       };
       grp.lines.push(lineRecord);
-      grp.distinctSkuCount += 1;
+      grp.skus.add(item.sku);
       grp.totalUnits += item.qty;
       grp.itemSubtotalCents += lineSubtotalCents;
       if (offer.deliveryHours > grp.maxDeliveryHours) {
@@ -632,7 +666,7 @@
 
     for (const grp of groups.values()) {
       const m = grp.merchant;
-      const qualifiesBundle = grp.distinctSkuCount >= m.bundleThresholdItems;
+      const qualifiesBundle = grp.skus.size >= m.bundleThresholdItems;
       const discountCents = qualifiesBundle
         ? Math.floor((grp.itemSubtotalCents * m.bundleDiscountBps) / 10000)
         : 0;
@@ -657,7 +691,7 @@
         paypalMerchantId: m.merchantId,
         region: m.region,
         reliabilityScore: m.reliabilityScore,
-        distinctSkuCount: grp.distinctSkuCount,
+        distinctSkuCount: grp.skus.size,
         totalUnits: grp.totalUnits,
         itemSubtotalCents: grp.itemSubtotalCents,
         qualifiesBundle,
@@ -717,10 +751,23 @@
     return noWorse && strictlyBetter;
   }
 
+  const MAX_CART_ITEMS = 1024;
+  const MAX_SEARCH_NODES = 250000;
+  const MAX_FEASIBLE_SOLUTIONS = 50000;
+
   function solveCart(scenarioInput, userConstraints) {
     const scenario = typeof scenarioInput === 'string'
       ? getScenarioById(scenarioInput)
       : (scenarioInput || SCENARIOS[0]);
+
+    if (!scenario || !Array.isArray(scenario.items)) {
+      throw new Error('solveCart requires a scenario with an items array');
+    }
+    for (const item of scenario.items) {
+      if (!item || !Array.isArray(item.offers)) {
+        throw new Error('solveCart requires every item to carry an offers array');
+      }
+    }
 
     const constraints = Object.assign({
       budgetCents: scenario.defaultBudgetCents,
@@ -730,9 +777,43 @@
       strategy: 'LOWEST_COST'
     }, userConstraints || {});
 
+    if (!Number.isFinite(constraints.budgetCents)) {
+      constraints.budgetCents = scenario.defaultBudgetCents;
+    }
+    if (!Number.isFinite(constraints.maxSlaHours)) {
+      constraints.maxSlaHours = scenario.defaultSlaHours;
+    }
+    if (!Number.isFinite(constraints.minReliability)) {
+      constraints.minReliability = scenario.defaultMinReliability;
+    }
+    const excludedSet = normalizeExcludedMerchants(constraints.excludedMerchants);
+    constraints.excludedMerchants = Array.from(excludedSet);
+
+    const maxSearchNodes = Number.isSafeInteger(constraints.maxSearchNodes) && constraints.maxSearchNodes > 0
+      ? constraints.maxSearchNodes
+      : MAX_SEARCH_NODES;
+
     const items = scenario.items;
     const n = items.length;
-    const excludedSet = new Set(constraints.excludedMerchants || []);
+    if (n > MAX_CART_ITEMS) {
+      return {
+        feasible: false,
+        reason: 'CART_TOO_LARGE',
+        scenarioId: scenario.id,
+        scenarioTitle: scenario.title,
+        constraints,
+        nodesExplored: 0,
+        branchesPruned: 0,
+        totalFeasibleCount: 0,
+        paretoFrontier: [],
+        modes: { LOWEST_COST: null, FASTEST_DELIVERY: null, FEWEST_SHIPMENTS: null },
+        selectedMode: constraints.strategy,
+        recommended: null,
+        baselines: { greedyUnbundled: null, singleMerchant: null },
+        savingsVsGreedyCents: 0,
+        savingsVsSingleMerchantCents: 0
+      };
+    }
 
     // Precompute optimistic lower bound per remaining item for Branch-and-Bound pruning
     const minItemNetCost = new Array(n).fill(0);
@@ -760,16 +841,21 @@
     const currentAssignment = new Array(n);
     let nodesExplored = 0;
     let branchesPruned = 0;
-    let bestCostSoFar = Infinity;
+    let searchLimitExceeded = false;
 
     function search(depth, runningOptimisticCents) {
+      if (searchLimitExceeded) return;
       nodesExplored += 1;
+      if (nodesExplored > maxSearchNodes) {
+        searchLimitExceeded = true;
+        return;
+      }
       if (depth === n) {
         const evaluated = evaluateAssignment(scenario, currentAssignment, constraints);
         if (evaluated.feasible) {
           feasibleSolutions.push(evaluated);
-          if (evaluated.totalLandedCents < bestCostSoFar) {
-            bestCostSoFar = evaluated.totalLandedCents;
+          if (feasibleSolutions.length > MAX_FEASIBLE_SOLUTIONS) {
+            searchLimitExceeded = true;
           }
         }
         return;
@@ -786,8 +872,9 @@
       const sortedOffers = item.offers.slice().sort((a, b) => a.unitPriceCents - b.unitPriceCents);
 
       for (let k = 0; k < sortedOffers.length; k++) {
+        if (searchLimitExceeded) return;
         const off = sortedOffers[k];
-        if (excludedSet.has(off.merchantId)) {
+        if (excludedSet.has(off.merchantId) || !isValidOfferData(off) || !isValidItemQty(item.qty)) {
           branchesPruned += 1;
           continue;
         }
@@ -817,7 +904,7 @@
       });
       const pool = validOffers.length > 0 ? validOffers : item.offers;
       const cheapestUnit = pool.slice().sort((a, b) => a.unitPriceCents - b.unitPriceCents)[0];
-      return cheapestUnit.merchantId;
+      return cheapestUnit ? cheapestUnit.merchantId : null;
     });
     const greedyBaseline = evaluateAssignment(scenario, greedyAssignment, {
       budgetCents: Number.MAX_SAFE_INTEGER,
@@ -844,9 +931,11 @@
       }
     }
 
-    if (feasibleSolutions.length === 0) {
+    if (searchLimitExceeded || feasibleSolutions.length === 0) {
       return {
         feasible: false,
+        reason: searchLimitExceeded ? 'SEARCH_LIMIT_EXCEEDED' : 'NO_FEASIBLE_ALLOCATION',
+        searchLimitExceeded,
         scenarioId: scenario.id,
         scenarioTitle: scenario.title,
         constraints,
@@ -1100,42 +1189,80 @@
 
     for (let i = 0; i < body.purchase_units.length; i++) {
       const pu = body.purchase_units[i];
+      if (!pu || typeof pu !== 'object') {
+        errors.push('Malformed purchase_unit at index ' + i);
+        continue;
+      }
+      const refLabel = pu.reference_id || ('index ' + i);
       if (!pu.reference_id || seenRefs.has(pu.reference_id)) {
         errors.push('Duplicate or missing reference_id at index ' + i);
       }
       seenRefs.add(pu.reference_id);
 
       if (!pu.payee || !pu.payee.email_address || !pu.payee.merchant_id) {
-        errors.push('Missing payee credentials on ' + pu.reference_id);
+        errors.push('Missing payee credentials on ' + refLabel);
       }
 
       const amt = pu.amount;
-      if (!amt || amt.currency_code !== 'USD' || !amt.breakdown) {
-        errors.push('Missing amount breakdown on ' + pu.reference_id);
+      if (!amt || amt.currency_code !== 'USD' || !amt.breakdown || typeof amt.breakdown !== 'object') {
+        errors.push('Missing amount breakdown on ' + refLabel);
         continue;
       }
 
-      const toCents = (obj) => Math.round(Number(obj && obj.value ? obj.value : 0) * 100);
       const valCents = Math.round(Number(amt.value) * 100);
+      if (!Number.isFinite(valCents)) {
+        errors.push('Non-numeric amount.value on ' + refLabel);
+        continue;
+      }
+      if (valCents < 0) {
+        errors.push('Negative amount.value on ' + refLabel);
+      }
+
+      const toCents = (obj) => Math.round(Number(obj && obj.value ? obj.value : 0) * 100);
       const itemTotal = toCents(amt.breakdown.item_total);
       const shipping = toCents(amt.breakdown.shipping);
       const handling = toCents(amt.breakdown.handling);
       const taxTotal = toCents(amt.breakdown.tax_total);
       const discount = toCents(amt.breakdown.discount);
 
+      for (const [label, v] of [['item_total', itemTotal], ['shipping', shipping],
+        ['handling', handling], ['tax_total', taxTotal], ['discount', discount]]) {
+        if (!Number.isFinite(v)) {
+          errors.push('Non-numeric breakdown.' + label + ' on ' + refLabel);
+        } else if (v < 0) {
+          errors.push('Negative breakdown.' + label + ' on ' + refLabel);
+        }
+      }
+
       const expectedTotal = itemTotal + shipping + handling + taxTotal - discount;
       if (valCents !== expectedTotal) {
-        errors.push('Breakdown mismatch on ' + pu.reference_id + ': value=' + valCents + ' vs breakdown=' + expectedTotal);
+        errors.push('Breakdown mismatch on ' + refLabel + ': value=' + valCents + ' vs breakdown=' + expectedTotal);
       }
 
       let sumLines = 0;
-      for (const item of pu.items || []) {
-        const u = Math.round(Number(item.unit_amount.value) * 100);
-        const q = Number(item.quantity);
-        sumLines += u * q;
+      if (pu.items !== undefined && !Array.isArray(pu.items)) {
+        errors.push('items must be an array on ' + refLabel);
+      } else {
+        for (const item of (pu.items || [])) {
+          if (!item || typeof item !== 'object' || !item.unit_amount ||
+            !Number.isFinite(Number(item.unit_amount.value)) ||
+            !Number.isFinite(Number(item.quantity))) {
+            errors.push('Malformed line item on ' + refLabel);
+            continue;
+          }
+          const u = Math.round(Number(item.unit_amount.value) * 100);
+          const q = Number(item.quantity);
+          if (u < 0) {
+            errors.push('Negative unit_amount on ' + refLabel);
+          }
+          if (!(q > 0)) {
+            errors.push('Non-positive quantity on ' + refLabel);
+          }
+          sumLines += u * q;
+        }
       }
       if (sumLines !== itemTotal) {
-        errors.push('Line item sum mismatch on ' + pu.reference_id + ': sumLines=' + sumLines + ' vs item_total=' + itemTotal);
+        errors.push('Line item sum mismatch on ' + refLabel + ': sumLines=' + sumLines + ' vs item_total=' + itemTotal);
       }
 
       grandTotalCents += valCents;
@@ -1175,7 +1302,12 @@
     if (!solverResult || !solverResult.feasible || !solverResult.recommended) {
       throw new Error('simulateSagaExecution requires a feasible primary cart solution');
     }
+    if (solverResult.scenarioId && scenario.id && solverResult.scenarioId !== scenario.id) {
+      throw new Error('solver result belongs to scenario ' + solverResult.scenarioId +
+        ', not ' + scenario.id);
+    }
 
+    const solverConstraints = solverResult.constraints || {};
     const initialPlan = solverResult.recommended;
     const faultType = (faultConfig && faultConfig.faultType && FAULT_CATALOG[faultConfig.faultType])
       ? faultConfig.faultType
@@ -1211,6 +1343,8 @@
         detail,
         apiRecord ? apiRecord.endpoint : 'INTERNAL',
         apiRecord ? apiRecord.idempotencyKey : 'NONE',
+        apiRecord ? JSON.stringify(apiRecord.requestBody === undefined ? null : apiRecord.requestBody) : 'NONE',
+        apiRecord ? JSON.stringify(apiRecord.responseSummary === undefined ? null : apiRecord.responseSummary) : 'NONE',
         prevHash
       ].join('|');
       const eventHash = sha256Hex(canonicalPayload);
@@ -1424,8 +1558,8 @@
     );
 
     // Compensating Action 2: Re-solve cart excluding the failed merchant while locking surviving merchant assignments
-    const excludedList = Array.from(new Set([...(solverResult.constraints.excludedMerchants || []), targetMerchantId]));
-    const rerouteResult = solveCart(scenario, Object.assign({}, solverResult.constraints, {
+    const excludedList = Array.from(new Set([...(solverConstraints.excludedMerchants || []), targetMerchantId]));
+    const rerouteResult = solveCart(scenario, Object.assign({}, solverConstraints, {
       excludedMerchants: excludedList
     }));
 
@@ -1450,7 +1584,7 @@
           'VOIDED',
           'CartConductor Saga Coordinator',
           'Full Rollback Void ' + survAuth.authId + ' (' + mb.merchantName + ')',
-          'No feasible fallback within ' + formatUsd(solverResult.constraints.budgetCents) + ' budget cap; voided surviving hold of ' + formatUsd(mb.unitTotalCents) + '.',
+          'No feasible fallback within ' + formatUsd(Number.isFinite(solverConstraints.budgetCents) ? solverConstraints.budgetCents : scenario.defaultBudgetCents) + ' budget cap; voided surviving hold of ' + formatUsd(mb.unitTotalCents) + '.',
           {
             method: 'POST',
             endpoint: '/v2/payments/authorizations/' + survAuth.authId + '/void',
@@ -1608,6 +1742,41 @@
       });
     }
 
+    // Compensating Action 3: void surviving authorizations whose merchants the
+    // fallback plan dropped entirely, so no orphaned hold remains.
+    for (const mb of initialPlan.merchantBreakdowns) {
+      if (mb.merchantId === targetMerchantId) continue;
+      const stillAllocated = fallbackPlan.merchantBreakdowns.some((m) => m.merchantId === mb.merchantId);
+      if (stillAllocated) continue;
+      const droppedAuth = authRecords.get(mb.merchantId);
+      if (!droppedAuth || droppedAuth.status !== 'AUTHORIZED') continue;
+      const dropKey = computeIdempotencyKey(scenario.id, fallbackPlan.signature, 'VOID_DROPPED_' + droppedAuth.authId);
+      droppedAuth.status = 'VOIDED';
+      voidedAuthorizations.push({
+        authId: droppedAuth.authId,
+        referenceId: droppedAuth.referenceId,
+        merchantId: mb.merchantId,
+        merchantName: mb.merchantName,
+        voidedAmountCents: mb.unitTotalCents,
+        reason: 'MERCHANT_DROPPED_FROM_FALLBACK'
+      });
+      appendEvent(
+        'COMPENSATING_VOID',
+        'VOIDED',
+        'CartConductor Saga Coordinator',
+        'Void Dropped Hold ' + droppedAuth.authId + ' (' + mb.merchantName + ')',
+        'Fallback plan dropped ' + mb.merchantName + '; voided surviving hold of ' + formatUsd(mb.unitTotalCents) + ' so no orphaned authorization remains.',
+        {
+          method: 'POST',
+          endpoint: '/v2/payments/authorizations/' + droppedAuth.authId + '/void',
+          httpStatus: 204,
+          idempotencyKey: dropKey,
+          requestBody: { note_to_payee: 'Surviving merchant dropped by fallback re-allocation' },
+          responseSummary: { authorization_id: droppedAuth.authId, status: 'VOIDED' }
+        }
+      );
+    }
+
     return {
       sagaStatus: 'RECOVERED_AND_CAPTURED',
       faultInjected: true,
@@ -1640,6 +1809,12 @@
     let expectedPrev = '0'.repeat(64);
     for (let i = 0; i < timeline.length; i++) {
       const ev = timeline[i];
+      if (!ev || typeof ev !== 'object') {
+        return { valid: false, reason: 'MALFORMED_ENTRY_AT_INDEX_' + i, verifiedSteps: i };
+      }
+      if (ev.step !== i + 1) {
+        return { valid: false, reason: 'STEP_SEQUENCE_MISMATCH_AT_INDEX_' + i, verifiedSteps: i };
+      }
       if (ev.prevHash !== expectedPrev) {
         return { valid: false, reason: 'PREV_HASH_MISMATCH_AT_STEP_' + ev.step, verifiedSteps: i };
       }
@@ -1652,6 +1827,8 @@
         ev.detail,
         ev.apiRecord ? ev.apiRecord.endpoint : 'INTERNAL',
         ev.apiRecord ? ev.apiRecord.idempotencyKey : 'NONE',
+        ev.apiRecord ? JSON.stringify(ev.apiRecord.requestBody === undefined ? null : ev.apiRecord.requestBody) : 'NONE',
+        ev.apiRecord ? JSON.stringify(ev.apiRecord.responseSummary === undefined ? null : ev.apiRecord.responseSummary) : 'NONE',
         ev.prevHash
       ].join('|');
       const recomputed = sha256Hex(canonicalPayload);
@@ -1665,6 +1842,244 @@
       reason: 'OK',
       verifiedSteps: timeline.length,
       headHash: expectedPrev
+    };
+  }
+
+  /* ---------- Deepened Analytics: Waterfall, Sensitivity, Frontier Diversity ---------- */
+
+  /**
+   * Ordered, additive cost stages for a solved assignment. The returned stages
+   * always reconstruct totalLandedCents exactly (integer cents), which makes
+   * them safe to feed a stacked bar chart. Discount is represented as a
+   * negative stage so subtotal - discount + fees + tax = landed.
+   */
+  function costWaterfall(solution) {
+    const fields = ['totalLandedCents', 'totalItemSubtotalCents', 'totalBundleDiscountCents',
+      'totalShippingCents', 'totalHandlingCents', 'totalTaxCents'];
+    if (!solution || !solution.feasible || fields.some((key) =>
+      !Number.isSafeInteger(solution[key]) || solution[key] < 0)) {
+      return { ok: false, reason: 'INFEASIBLE_OR_MISSING_SOLUTION', stages: [], totalCents: 0 };
+    }
+    const total = solution.totalLandedCents;
+    const exactTotal = BigInt(solution.totalItemSubtotalCents) - BigInt(solution.totalBundleDiscountCents) +
+      BigInt(solution.totalShippingCents) + BigInt(solution.totalHandlingCents) + BigInt(solution.totalTaxCents);
+    if (exactTotal < 0n || exactTotal > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return { ok: false, reason: 'UNSAFE_RECONSTRUCTION', stages: [], totalCents: total };
+    }
+    const stages = [
+      { key: 'ITEMS', label: 'Item subtotals', cents: solution.totalItemSubtotalCents, sign: 1 },
+      { key: 'BUNDLE_DISCOUNT', label: 'Bundle discounts', cents: -solution.totalBundleDiscountCents, sign: -1 },
+      { key: 'SHIPPING', label: 'Shipping', cents: solution.totalShippingCents, sign: 1 },
+      { key: 'HANDLING', label: 'Handling', cents: solution.totalHandlingCents, sign: 1 },
+      { key: 'TAX', label: 'Regional tax', cents: solution.totalTaxCents, sign: 1 }
+    ];
+    let running = 0;
+    const withRunning = stages.map((s) => {
+      running += s.cents;
+      return Object.assign({}, s, {
+        runningCents: running,
+        shareOfLanded: total > 0 ? Number((Math.abs(s.cents) / total).toFixed(6)) : 0
+      });
+    });
+    return {
+      ok: running === total,
+      reason: running === total ? 'OK' : 'RECONSTRUCTION_MISMATCH',
+      stages: withRunning,
+      totalCents: total,
+      reconstructedCents: running
+    };
+  }
+
+  /**
+   * Sweeps the hard budget cap across a range and re-solves at each step.
+   * This exposes the marginal value of budget headroom: where feasibility
+   * begins, how the feasible-set size grows, and the minimum recommended cost among sampled budgets. Every point comes from the real branch-and-bound solver.
+   */
+  function budgetSensitivityCurve(scenarioInput, userConstraints, steps) {
+    const scenario = typeof scenarioInput === 'string'
+      ? getScenarioById(scenarioInput)
+      : (scenarioInput || SCENARIOS[0]);
+    const base = Object.assign({
+      budgetCents: scenario.defaultBudgetCents,
+      maxSlaHours: scenario.defaultSlaHours,
+      minReliability: scenario.defaultMinReliability,
+      excludedMerchants: [],
+      strategy: 'LOWEST_COST'
+    }, userConstraints || {});
+    if (!Number.isSafeInteger(base.budgetCents) || base.budgetCents < 0 ||
+        base.budgetCents > Math.floor(Number.MAX_SAFE_INTEGER / 1.3)) {
+      return { ok: false, reason: 'INVALID_BUDGET_CAP', scenarioId: scenario.id,
+        lowCents: null, highCents: null, steps: 0, firstFeasibleBudgetCents: null,
+        minimumSampledCostCents: null, points: [] };
+    }
+    const count = Number.isFinite(steps) && steps >= 2 ? Math.min(64, Math.floor(steps)) : 12;
+    const low = Math.floor(base.budgetCents * 0.70);
+    const high = Math.ceil(base.budgetCents * 1.30);
+    const points = [];
+    let firstFeasibleBudgetCents = null;
+    for (let i = 0; i < count; i++) {
+      const budgetCents = Math.round(low + ((high - low) * i) / (count - 1));
+      const solved = solveCart(scenario, Object.assign({}, base, { budgetCents }));
+      const point = {
+        index: i,
+        budgetCents,
+        feasible: solved.feasible,
+        feasibleCount: solved.totalFeasibleCount,
+        frontierSize: solved.paretoFrontier.length,
+        recommendedCostCents: solved.recommended ? solved.recommended.totalLandedCents : null,
+        nodesExplored: solved.nodesExplored,
+        branchesPruned: solved.branchesPruned
+      };
+      if (solved.feasible && firstFeasibleBudgetCents === null) {
+        firstFeasibleBudgetCents = budgetCents;
+      }
+      points.push(point);
+    }
+    const feasiblePoints = points.filter((p) => p.feasible);
+    const costValues = feasiblePoints.map((p) => p.recommendedCostCents);
+    const minimumSampledCostCents = costValues.length ? Math.min.apply(null, costValues) : null;
+    return {
+      ok: true,
+      scenarioId: scenario.id,
+      lowCents: low,
+      highCents: high,
+      steps: count,
+      firstFeasibleBudgetCents,
+      minimumSampledCostCents,
+      points
+    };
+  }
+
+  /**
+   * NSGA-II style crowding distance over the four Pareto objectives.
+   * Endpoints of each sorted objective receive infinite distance so the
+   * extremes of the trade-off surface are preserved during selection.
+   */
+  function paretoCrowdingDistance(frontier) {
+    const list = (Array.isArray(frontier) ? frontier : []).filter((p) =>
+      p && typeof p === 'object' &&
+      Number.isFinite(p.totalLandedCents) &&
+      Number.isFinite(p.maxDeliveryHours) &&
+      Number.isFinite(p.shipmentCount) &&
+      Number.isFinite(p.jointReliability));
+    if (list.length === 0) return [];
+    const scored = list.map((p) => ({ solution: p, distance: 0 }));
+    if (list.length <= 2) {
+      return list.map((p) => ({ signature: p.signature, crowdingDistance: Infinity }));
+    }
+    const objectives = [
+      { get: (p) => p.totalLandedCents },
+      { get: (p) => p.maxDeliveryHours },
+      { get: (p) => p.shipmentCount },
+      { get: (p) => -p.jointReliability }
+    ];
+    for (const obj of objectives) {
+      const order = scored.slice().sort((a, b) => obj.get(a.solution) - obj.get(b.solution));
+      const n = order.length;
+      if (n < 3) continue;
+      const min = obj.get(order[0].solution);
+      const max = obj.get(order[n - 1].solution);
+      const span = max - min;
+      if (span <= 0) continue;
+      order[0].distance = Infinity;
+      order[n - 1].distance = Infinity;
+      for (let i = 1; i < n - 1; i++) {
+        if (!Number.isFinite(order[i].distance)) continue;
+        order[i].distance += (obj.get(order[i + 1].solution) - obj.get(order[i - 1].solution)) / span;
+      }
+    }
+    return scored.map((s) => ({
+      signature: s.solution.signature,
+      crowdingDistance: Number.isFinite(s.distance) ? Number(s.distance.toFixed(6)) : Infinity
+    }));
+  }
+
+  /** Compact invariant summary of a solver run, useful for regression guards. */
+  function solverDiagnostics(solveResult) {
+    if (!solveResult || typeof solveResult.totalFeasibleCount !== 'number') {
+      return { ok: false, reason: 'INVALID_SOLVER_RESULT' };
+    }
+    const nodes = solveResult.nodesExplored || 0;
+    const pruned = solveResult.branchesPruned || 0;
+    const feasible = solveResult.totalFeasibleCount;
+    const frontier = solveResult.paretoFrontier ? solveResult.paretoFrontier.length : 0;
+    const greedy = solveResult.baselines && solveResult.baselines.greedyUnbundled;
+    const single = solveResult.baselines && solveResult.baselines.singleMerchant;
+    const recommended = solveResult.recommended;
+    const ratio = (num, den) => (den > 0 ? Number((num / den).toFixed(6)) : 0);
+    return {
+      ok: true,
+      scenarioId: solveResult.scenarioId,
+      nodesExplored: nodes,
+      branchesPruned: pruned,
+      pruneRatio: ratio(pruned, nodes + pruned),
+      feasibleCount: feasible,
+      frontierSize: frontier,
+      dominanceCompressionRatio: ratio(feasible - frontier, feasible),
+      recommended: recommended ? {
+        signature: recommended.signature,
+        totalLandedCents: recommended.totalLandedCents,
+        savingsVsGreedyCents: solveResult.savingsVsGreedyCents,
+        savingsVsGreedyRate: greedy && greedy.feasible
+          ? ratio(solveResult.savingsVsGreedyCents, greedy.totalLandedCents) : null,
+        savingsVsSingleMerchantRate: single && single.feasible
+          ? ratio(solveResult.savingsVsSingleMerchantCents, single.totalLandedCents) : null
+      } : null,
+      frontierCrowding: paretoCrowdingDistance(solveResult.paretoFrontier || [])
+    };
+  }
+
+  /**
+   * Regression harness helper: for a scenario, solve, then execute the saga
+   * for every fault type against every allocated merchant and verify the
+   * resulting SHA-256 receipt chain plus the order payload schema.
+   */
+  function scenarioStressTest(scenarioInput, userConstraints) {
+    const solved = solveCart(scenarioInput, userConstraints);
+    if (!solved.feasible || !solved.recommended) {
+      return { ok: false, reason: 'NO_RECOMMENDED_SOLUTION', scenarioId: solved.scenarioId, cases: [] };
+    }
+    const cases = [];
+    let allValid = true;
+    const faultTypes = Object.keys(FAULT_CATALOG);
+    const merchantIds = solved.recommended.merchantBreakdowns.map((b) => b.merchantId);
+    for (const faultType of faultTypes) {
+      // NONE ignores targetMerchantId, so one nominal run covers it
+      const targets = faultType === 'NONE' ? [null] : merchantIds;
+      for (const merchantId of targets) {
+        let saga;
+        try {
+          saga = simulateSagaExecution(scenarioInput, solved, {
+            faultType,
+            targetMerchantId: merchantId
+          });
+        } catch (err) {
+          cases.push({ faultType, merchantId, ok: false, reason: 'THREW', error: String(err) });
+          allValid = false;
+          continue;
+        }
+        const chain = verifySagaReceiptChain(saga.timeline);
+        const orderCheck = validatePayPalOrderPayload(saga.replacementOrder || saga.initialOrder);
+        const headMatches = chain.headHash === saga.receiptChainHeadHash;
+        const ok = chain.valid && headMatches && orderCheck.valid && saga.timeline.length > 0;
+        if (!ok) allValid = false;
+        cases.push({
+          faultType,
+          merchantId,
+          ok,
+          reason: ok ? 'OK' : (!chain.valid ? chain.reason : (!headMatches ? 'HEAD_HASH_MISMATCH' : (!orderCheck.valid ? 'ORDER_INVALID' : 'EMPTY_TIMELINE'))),
+          chainSteps: chain.verifiedSteps,
+          apiCalls: saga.apiCalls.length
+        });
+      }
+    }
+    return {
+      ok: allValid,
+      scenarioId: solved.scenarioId,
+      faultTypeCount: faultTypes.length,
+      merchantCount: merchantIds.length,
+      caseCount: cases.length,
+      cases
     };
   }
 
@@ -1684,6 +2099,11 @@
     buildPayPalOrderPayload,
     validatePayPalOrderPayload,
     simulateSagaExecution,
-    verifySagaReceiptChain
+    verifySagaReceiptChain,
+    costWaterfall,
+    budgetSensitivityCurve,
+    paretoCrowdingDistance,
+    solverDiagnostics,
+    scenarioStressTest
   };
 });

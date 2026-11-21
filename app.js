@@ -32,6 +32,7 @@
       budgetCents: engine.SCENARIOS[0].defaultBudgetCents,
       maxSlaHours: engine.SCENARIOS[0].defaultSlaHours,
       minReliability: engine.SCENARIOS[0].defaultMinReliability,
+      sensitivitySteps: 12,
       faultType: 'NONE',
       faultMerchantId: null,
       payloadView: 'PRIMARY_ORDER',
@@ -49,7 +50,7 @@
       const svg = el('svg-pareto-chart');
       if (!svg) return;
       if (!solverResult || !solverResult.feasible || solverResult.allFeasibleSolutions.length === 0) {
-        svg.innerHTML = '<text x="310" y="160" text-anchor="middle" fill="#C84B31" font-family="IBM Plex Mono, monospace" font-size="13">No feasible allocation satisfies current budget and SLA constraints.</text>';
+        svg.innerHTML = '<text x="310" y="160" text-anchor="middle" fill="#B0412B" font-family="IBM Plex Mono, monospace" font-size="13">No feasible allocation satisfies current budget and SLA constraints.</text>';
         return;
       }
 
@@ -114,7 +115,7 @@
         const key = cx + ',' + cy;
         if (seenCoords.has(key)) continue;
         seenCoords.add(key);
-        parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="3.5" fill="#A09A90" opacity="0.65"/>');
+        parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="3.5" fill="#8A8478" opacity="0.65"/>');
       }
 
       // Connect 2D cost-vs-hours non-dominated step polyline
@@ -274,6 +275,11 @@
 
       const greedySign = solverResult.savingsVsGreedyCents >= 0 ? '+' : '';
       setTxt('kpi-savings-greedy', greedySign + engine.formatUsd(solverResult.savingsVsGreedyCents));
+      const savingsEl = el('kpi-savings-greedy');
+      if (savingsEl) {
+        savingsEl.className = 'kpi-value ' +
+          (solverResult.savingsVsGreedyCents < 0 ? 'kpi-negative' : 'kpi-positive');
+      }
       const singleText = solverResult.baselines.singleMerchant
         ? (solverResult.savingsVsSingleMerchantCents >= 0 ? '+' : '') + engine.formatUsd(solverResult.savingsVsSingleMerchantCents) + ' vs single-merchant'
         : 'No single merchant stocks all SKUs';
@@ -326,9 +332,10 @@
 
       const saga = state.sagaResult;
       const chainCheck = engine.verifySagaReceiptChain(saga.timeline);
+      const chainOk = chainCheck.valid && chainCheck.headHash === saga.receiptChainHeadHash;
 
       if (chainBadge) {
-        chainBadge.textContent = chainCheck.valid
+        chainBadge.textContent = chainOk
           ? 'SHA-256 Verified (' + chainCheck.verifiedSteps + ' steps)'
           : 'Chain Mismatch';
       }
@@ -429,6 +436,144 @@
       }
     }
 
+    function renderCostWaterfall(solverResult) {
+      const svg = el('svg-cost-waterfall');
+      const list = el('list-cost-waterfall');
+      const caption = el('caption-cost-waterfall');
+      if (!svg) return;
+      if (!solverResult || !solverResult.feasible || !solverResult.recommended) {
+        svg.innerHTML = '<text x="240" y="120" text-anchor="middle" fill="#B0412B" font-family="monospace" font-size="12">No feasible plan to decompose.</text>';
+        if (list) list.innerHTML = '';
+        if (caption) caption.textContent = 'Relax the buyer constraints to rebuild the waterfall.';
+        return;
+      }
+      const wf = engine.costWaterfall(solverResult.recommended);
+      const W = 480, H = 240, padL = 16, padR = 16, padT = 22, padB = 34;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const positives = wf.stages.filter((s) => s.cents > 0);
+      const maxRunning = Math.max.apply(null, wf.stages.map((s) => Math.abs(s.runningCents)).concat([wf.totalCents, 1]));
+      const scaleY = (v) => plotH - (Math.abs(v) / maxRunning) * plotH;
+      const colors = {
+        ITEMS: '#1B4D8E',
+        BUNDLE_DISCOUNT: '#1B6B50',
+        SHIPPING: '#C8892A',
+        HANDLING: '#7B5EA7',
+        TAX: '#B0412B'
+      };
+      const barW = plotW / wf.stages.length;
+      let running = 0;
+      let bars = '';
+      wf.stages.forEach((s, i) => {
+        const x = padL + i * barW + barW * 0.18;
+        const w = barW * 0.64;
+        const from = running;
+        running += s.cents;
+        const yTop = padT + scaleY(Math.max(from, running));
+        const h = Math.abs(scaleY(from) - scaleY(running));
+        bars += '<rect x="' + x.toFixed(2) + '" y="' + yTop.toFixed(2) + '" width="' + w.toFixed(2) +
+          '" height="' + h.toFixed(2) + '" fill="' + (colors[s.key] || '#141516') + '" opacity="0.88"><title>' +
+          escapeHtml(s.label + ': ' + engine.formatUsd(s.cents)) + '</title></rect>';
+        const labelY = padT + plotH + 16;
+        bars += '<text x="' + (x + w / 2).toFixed(2) + '" y="' + labelY + '" text-anchor="middle" font-family="monospace" font-size="8" fill="#141516">' +
+          escapeHtml(s.key.replace('_', ' ').slice(0, 9)) + '</text>';
+      });
+      const totalY = padT + scaleY(wf.totalCents);
+      const grid = '<line x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '" stroke="#141516" stroke-width="1"/>' +
+        '<line x1="' + padL + '" y1="' + totalY.toFixed(2) + '" x2="' + (W - padR) + '" y2="' + totalY.toFixed(2) + '" stroke="#1B6B50" stroke-dasharray="4 3" stroke-width="1"/>' +
+        '<text x="' + (W - padR) + '" y="' + (totalY - 4).toFixed(2) + '" text-anchor="end" font-family="monospace" font-size="9" fill="#1B6B50">landed ' + escapeHtml(engine.formatUsd(wf.totalCents)) + '</text>';
+      svg.innerHTML = grid + bars;
+      if (list) {
+        list.innerHTML = wf.stages.map((s) => (
+          '<li><span>' + escapeHtml(s.label) + '</span><span>' + escapeHtml(engine.formatUsd(s.cents)) +
+          ' (' + (s.shareOfLanded * 100).toFixed(1) + '%)</span></li>'
+        )).join('');
+      }
+      if (caption) {
+        caption.textContent = wf.ok
+          ? 'Stages reconstruct ' + engine.formatUsd(wf.reconstructedCents) + ' exactly from ' + positives.length + ' positive stages. Discounts are negative.'
+          : 'Reconstruction mismatch: staged total differs from landed total.';
+      }
+    }
+
+    function renderSensitivityCurve() {
+      const svg = el('svg-sensitivity');
+      const caption = el('caption-sensitivity');
+      if (!svg) return;
+      const scenario = engine.getScenarioById(state.scenarioId);
+      const curve = engine.budgetSensitivityCurve(scenario, {
+        budgetCents: state.budgetCents,
+        maxSlaHours: state.maxSlaHours,
+        minReliability: state.minReliability,
+        strategy: state.strategy
+      }, state.sensitivitySteps);
+      const W = 480, H = 240, padL = 44, padR = 64, padT = 20, padB = 40;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const maxCount = Math.max.apply(null, curve.points.map((p) => p.feasibleCount).concat([1]));
+      const xAt = (i) => padL + (plotW * i) / (curve.points.length - 1);
+      const yAt = (v) => padT + plotH - (v / maxCount) * plotH;
+      const linePts = curve.points.map((p, i) => xAt(i).toFixed(2) + ',' + yAt(p.feasibleCount).toFixed(2)).join(' ');
+      const costMax = Math.max.apply(null, curve.points.filter((p) => p.recommendedCostCents !== null).map((p) => p.recommendedCostCents).concat([1]));
+      const costYAt = (v) => padT + plotH - (v / costMax) * plotH;
+      const costPts = curve.points.map((p, i) => (p.recommendedCostCents === null ? null : xAt(i).toFixed(2) + ',' + costYAt(p.recommendedCostCents).toFixed(2))).filter(Boolean).join(' ');
+      let dots = '';
+      curve.points.forEach((p, i) => {
+        dots += '<circle cx="' + xAt(i).toFixed(2) + '" cy="' + yAt(p.feasibleCount).toFixed(2) + '" r="3.2" fill="' +
+          (p.feasible ? '#1B6B50' : '#B0412B') + '"><title>' + escapeHtml(engine.formatUsd(p.budgetCents) + ': ' + p.feasibleCount + ' feasible') + '</title></circle>';
+      });
+      const firstIdx = curve.firstFeasibleBudgetCents === null ? -1 : curve.points.findIndex((p) => p.budgetCents === curve.firstFeasibleBudgetCents);
+      const marker = firstIdx >= 0
+        ? '<line x1="' + xAt(firstIdx).toFixed(2) + '" y1="' + padT + '" x2="' + xAt(firstIdx).toFixed(2) + '" y2="' + (padT + plotH) + '" stroke="#1B4D8E" stroke-dasharray="3 3"/>' +
+          '<text x="' + (xAt(firstIdx) + 3).toFixed(2) + '" y="' + (padT + 10) + '" font-family="monospace" font-size="8" fill="#1B4D8E">feasible</text>'
+        : '';
+      svg.innerHTML =
+        '<line x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '" stroke="#141516"/>' +
+        '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + plotH) + '" stroke="#141516"/>' +
+        '<text x="6" y="' + (padT + 8) + '" font-family="monospace" font-size="8" fill="#141516">' + maxCount + ' plans</text>' +
+        (costPts ? '<line x1="' + (W - padR) + '" y1="' + padT + '" x2="' + (W - padR) + '" y2="' + (padT + plotH) + '" stroke="#C8892A"/>' +
+          '<text x="' + (W - padR + 4) + '" y="' + (padT + 8) + '" font-family="monospace" font-size="8" fill="#141516">' + escapeHtml(engine.formatUsd(costMax)) + '</text>' +
+          '<text x="' + (W - padR + 4) + '" y="' + (padT + plotH) + '" font-family="monospace" font-size="8" fill="#141516">$0</text>' : '') +
+        marker +
+        '<polyline points="' + linePts + '" fill="none" stroke="#1B4D8E" stroke-width="2"/>' +
+        (costPts ? '<polyline points="' + costPts + '" fill="none" stroke="#C8892A" stroke-width="1.5" stroke-dasharray="5 3"/>' : '') +
+        dots +
+        '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-family="monospace" font-size="9" fill="#141516">blue uses the left count axis, gold uses the right cost axis</text>';
+      if (caption) {
+        caption.textContent = 'First sampled feasible cap ' + (curve.firstFeasibleBudgetCents === null ? 'not reached' : engine.formatUsd(curve.firstFeasibleBudgetCents)) +
+          '. Minimum sampled cost ' + (curve.minimumSampledCostCents === null ? 'n/a' : engine.formatUsd(curve.minimumSampledCostCents)) +
+          ' across ' + curve.steps + ' re-solves.';
+      }
+    }
+
+    function renderDiagnostics(solverResult) {
+      const list = el('list-diagnostics');
+      const crowding = el('list-crowding');
+      if (!list) return;
+      const d = engine.solverDiagnostics(solverResult);
+      if (!d.ok) {
+        list.innerHTML = '<dt>Status</dt><dd>Unavailable</dd>';
+        if (crowding) crowding.innerHTML = '';
+        return;
+      }
+      const pct = (v) => v === null ? 'Unavailable (baseline infeasible)' : (v * 100).toFixed(2) + '%';
+      list.innerHTML =
+        '<dt>Nodes explored</dt><dd>' + d.nodesExplored.toLocaleString('en-US') + '</dd>' +
+        '<dt>Branches pruned</dt><dd>' + d.branchesPruned.toLocaleString('en-US') + ' (' + pct(d.pruneRatio) + ')</dd>' +
+        '<dt>Feasible allocations</dt><dd>' + d.feasibleCount.toLocaleString('en-US') + '</dd>' +
+        '<dt>Pareto frontier size</dt><dd>' + d.frontierSize + '</dd>' +
+        '<dt>Dominance compression</dt><dd>' + pct(d.dominanceCompressionRatio) + '</dd>' +
+        (d.recommended
+          ? '<dt>Savings vs greedy</dt><dd>' + pct(d.recommended.savingsVsGreedyRate) + '</dd>' +
+            '<dt>Savings vs single vendor</dt><dd>' + pct(d.recommended.savingsVsSingleMerchantRate) + '</dd>'
+          : '<dt>Recommendation</dt><dd>None (infeasible)</dd>');
+      if (crowding) {
+        const rows = d.frontierCrowding.slice(0, 8);
+        crowding.innerHTML = rows.map((r) => (
+          '<li><span>' + escapeHtml(r.signature.split('|')[0]) + '</span><span>' +
+          (Number.isFinite(r.crowdingDistance) ? r.crowdingDistance.toFixed(3) : 'boundary') + '</span></li>'
+        )).join('') || '<li><span>No frontier points</span><span></span></li>';
+      }
+    }
+
     function recomputeAndRender() {
       const scenario = engine.getScenarioById(state.scenarioId);
       const solverResult = engine.solveCart(scenario, {
@@ -458,6 +603,9 @@
       renderModeCardsAndKpis(solverResult);
       renderAllocationTables(solverResult);
       renderParetoSvg(solverResult);
+      renderCostWaterfall(solverResult);
+      renderSensitivityCurve();
+      renderDiagnostics(solverResult);
       renderSagaAndPayload();
     }
 
@@ -554,6 +702,17 @@
         tabSaga.addEventListener('click', () => {
           state.payloadView = 'SAGA_CALLS';
           renderSagaAndPayload();
+        });
+      }
+
+      const rangeSteps = el('range-sensitivity-steps');
+      const outSteps = el('output-sensitivity-steps');
+      if (rangeSteps) {
+        rangeSteps.addEventListener('input', (e) => {
+          const n = Number(e.target.value);
+          state.sensitivitySteps = Number.isFinite(n) && n >= 4 ? Math.min(24, Math.floor(n)) : 12;
+          if (outSteps) outSteps.textContent = String(state.sensitivitySteps);
+          renderSensitivityCurve();
         });
       }
     }
