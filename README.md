@@ -9,6 +9,7 @@ A local multi-merchant cart solver and compensating checkout simulator. The cata
 - Inspect cost, delivery, shipment count and joint reliability on the Pareto frontier.
 - Inject merchant faults, inspect compensation events, and verify the computed SHA-256 receipt chain and payload amount checks.
 - Inspect a five-stage cost waterfall, sampled budget sensitivity, solver diagnostics and frontier crowding scores.
+- Compare five allocation policies across six injected fault modes in the Saga and Audit Lab, then export a SHA-256 audited procurement brief as JSON, formula-safe CSV or Markdown. One canonical digest stamps the on-page fingerprint and every export surface, and a strict `#cc=` bookmark hash restores the full lab state.
 
 ## Analytics
 
@@ -30,13 +31,16 @@ Node 18 or newer, with no package installation.
 npm test
 ```
 
+`npm test` runs 389 deterministic checks (389 passing as of the last verification run): solver, analytics, saga, receipt-chain, hygiene, mounted-controller, policy comparator, adversarial and bookmark-codec suites. The in-page lab also ships a self-test runner reporting 15/15 checks.
+
 Open `index.html` directly or use a static server. Fonts are self hosted, with their licenses in `fonts/OFL.txt`.
 
 ## Files
 
 - `engine.js` contains the solver, payment simulator and analytics.
+- `saga-lab.js` contains the five-policy fault comparator, audited brief exporter and bookmark codec.
 - `app.js`, `index.html` and `styles.css` contain the controller and ledger interface.
-- `tests/` contains engine, analytics, mounted controller and content checks.
+- `tests/` contains engine, analytics, mounted controller, lab, adversarial and content checks.
 - `DEVPOST_UPGRADE.md` records completed repairs and verification.
 
 <!-- verification -->

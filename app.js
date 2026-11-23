@@ -17,7 +17,7 @@
       .replace(/'/g, '&#39;');
   }
 
-  function createController(engine, doc) {
+  function createController(engine, doc, lab, loc) {
     if (!engine) {
       throw new Error('createController requires CartConductorEngine');
     }
@@ -25,6 +25,8 @@
     if (!documentRef) {
       throw new Error('createController requires a document reference');
     }
+    const labApi = lab || null;
+    const locationRef = loc || (typeof window !== 'undefined' && window.location) || null;
 
     const state = {
       scenarioId: engine.SCENARIOS[0].id,
@@ -39,7 +41,14 @@
       solverResult: null,
       sagaResult: null,
       orderPayload: null,
-      validationResult: null
+      validationResult: null,
+      policyId: 'greedy-min-cost',
+      labFaultMode: 'NONE',
+      labCompare: null,
+      labPareto: null,
+      labSensitivity: null,
+      labBrief: null,
+      labSelfTestResult: null
     };
 
     function el(id) {
@@ -574,6 +583,459 @@
       }
     }
 
+    /* ---------- Saga & Audit Lab ---------- */
+
+    function labConstraints() {
+      return {
+        budgetCents: state.budgetCents,
+        maxSlaHours: state.maxSlaHours,
+        minReliability: state.minReliability
+      };
+    }
+
+    function renderLabPolicyTable(compare) {
+      const tbody = el('tbody-lab-policies');
+      if (!tbody) return;
+      const status = el('lab-policy-status');
+      if (!compare || !Array.isArray(compare.rows)) {
+        tbody.innerHTML = '<tr><td colspan="9">Comparator unavailable.</td></tr>';
+        if (status) status.textContent = 'Policy comparator could not run under current constraints.';
+        return;
+      }
+      const fmLabel = compare.faultModeLabel || compare.faultMode;
+      tbody.innerHTML = compare.rows.map((r) => {
+        const isActive = r.policyId === state.policyId && r.feasible;
+        const relTxt = r.feasible && Number.isFinite(r.jointReliability)
+          ? (r.jointReliability * 100).toFixed(2) + '%'
+          : '--';
+        let proofs;
+        if (r.feasible) {
+          const tags = [
+            [r.chainValid, 'CHAIN', 'NO-CHAIN'],
+            [r.conservationOk, 'CONSERVED', 'DRIFT'],
+            [r.zeroLeak, 'ZERO-LEAK', 'LEAK']
+          ];
+          if (r.idempotentRetry !== null) {
+            tags.push([r.idempotentRetry, 'IDEMPOTENT', 'RETRY-DIVERGED']);
+          }
+          proofs = tags.map((t) =>
+            '<span class="badge-tag ' + (t[0] ? 'badge-green' : 'badge-vermilion') + '">' + t[t[0] ? 1 : 2] + '</span>'
+          ).join(' ');
+        } else {
+          proofs = '<span class="badge-tag badge-muted">N/A</span>';
+        }
+        const sagaBadge = r.feasible
+          ? '<span class="badge-tag ' + (r.sagaStatus === 'SETTLED_NOMINAL' ? 'badge-green' : (r.sagaStatus === 'RECOVERED_AND_CAPTURED' ? 'badge-navy' : 'badge-vermilion')) + '">' + escapeHtml(r.sagaStatus) + '</span>'
+          : '<span class="badge-tag badge-muted">' + escapeHtml(r.sagaStatus) + '</span>';
+        return (
+          '<tr class="lab-policy-row' + (isActive ? ' lab-policy-active' : '') + '" data-policy="' + escapeHtml(r.policyId) + '">' +
+            '<td><strong>' + escapeHtml(r.label) + '</strong></td>' +
+            '<td class="num">' + (r.feasible ? engine.formatUsd(r.totalLandedCents) : '--') + '</td>' +
+            '<td class="num">' + relTxt + '</td>' +
+            '<td>' + sagaBadge + '</td>' +
+            '<td class="num">' + (r.feasible ? engine.formatUsd(r.capturedCents) : '--') + '</td>' +
+            '<td class="num">' + (r.feasible ? engine.formatUsd(r.voidedCents) : '--') + '</td>' +
+            '<td class="num"><strong>' + (r.feasible ? engine.formatUsd(r.netSettledCents) : '--') + '</strong></td>' +
+            '<td>' + proofs + '</td>' +
+            '<td><button type="button" class="apply-btn" data-policy="' + escapeHtml(r.policyId) + '"' + (r.feasible ? '' : ' disabled') + '>Apply</button></td>' +
+          '</tr>'
+        );
+      }).join('');
+      if (status) {
+        const feasible = compare.rows.filter((r) => r.feasible).length;
+        status.textContent = feasible + ' of ' + compare.rows.length +
+          ' policies produced a candidate plan under fault mode ' + fmLabel +
+          '. Click a row or its Apply button to load that allocation.';
+      }
+    }
+
+    function renderLabParetoSvg(data) {
+      const svg = el('svg-lab-pareto');
+      const caption = el('caption-lab-pareto');
+      if (!svg) return;
+      if (!data || !data.ok) {
+        svg.innerHTML = '<text x="240" y="130" text-anchor="middle" fill="#B0412B" font-family="monospace" font-size="12">No feasible allocations to map.</text>';
+        if (caption) caption.textContent = 'Relax budget or SLA to populate the reliability cost map.';
+        return;
+      }
+      const W = 480, H = 260, padL = 56, padR = 16, padT = 16, padB = 40;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const xAt = (x) => padL + x * plotW;
+      const yAt = (y) => padT + plotH - y * plotH;
+      const parts = [];
+      parts.push('<rect x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + plotH + '" fill="#FBF9F5" stroke="#D3CCC0"/>');
+      for (let g = 0; g <= 4; g++) {
+        const gy = (padT + (plotH * g) / 4).toFixed(1);
+        const val = Math.round(data.yMax - ((data.yMax - data.yMin) * g) / 4);
+        parts.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (padL + plotW) + '" y2="' + gy + '" stroke="#E5DFD3" stroke-dasharray="3,3"/>');
+        parts.push('<text x="' + (padL - 6) + '" y="' + (Number(gy) + 3) + '" text-anchor="end" font-family="monospace" font-size="8" fill="#494C50">' + escapeHtml(engine.formatUsd(val)) + '</text>');
+      }
+      for (let g = 0; g <= 4; g++) {
+        const gx = (padL + (plotW * g) / 4).toFixed(1);
+        const val = data.xMin + ((data.xMax - data.xMin) * g) / 4;
+        parts.push('<line x1="' + gx + '" y1="' + padT + '" x2="' + gx + '" y2="' + (padT + plotH) + '" stroke="#E5DFD3" stroke-dasharray="3,3"/>');
+        parts.push('<text x="' + gx + '" y="' + (padT + plotH + 14) + '" text-anchor="middle" font-family="monospace" font-size="8" fill="#494C50">' + (val * 100).toFixed(1) + '%</text>');
+      }
+      parts.push('<text x="' + (padL + plotW / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-family="monospace" font-size="9" fill="#141516">joint clearing reliability</text>');
+      const seen = new Set();
+      for (const p of data.points) {
+        if (p.frontier) continue;
+        const cx = xAt(p.x).toFixed(1), cy = yAt(p.y).toFixed(1);
+        const key = cx + ',' + cy;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="3" fill="#8A8478" opacity="0.6"/>');
+      }
+      const frontierPts = data.points.filter((p) => p.frontier).sort((a, b) => a.x - b.x || a.y - b.y);
+      if (frontierPts.length > 1) {
+        parts.push('<polyline fill="none" stroke="#1B4D8E" stroke-width="1.8" points="' +
+          frontierPts.map((p) => xAt(p.x).toFixed(1) + ',' + yAt(p.y).toFixed(1)).join(' ') + '"/>');
+      }
+      for (const p of frontierPts) {
+        const cx = xAt(p.x).toFixed(1), cy = yAt(p.y).toFixed(1);
+        const sel = p.selected;
+        const titleText = engine.formatUsd(p.costCents) + ' | ' + (p.reliability * 100).toFixed(2) + '%' +
+          (p.policyIds.length ? ' | ' + p.policyIds.join(', ') : '');
+        parts.push('<circle class="plot-focus" tabindex="0" role="button" data-sig="' + escapeHtml(p.signature) +
+          '" aria-label="Apply frontier plan at ' + escapeHtml(titleText) + '"' +
+          ' cx="' + cx + '" cy="' + cy + '" r="' + (sel ? '6' : '4.5') + '" fill="' + (sel ? '#1B6B50' : '#1B4D8E') + '">' +
+          '<title>' + escapeHtml(titleText) + '</title></circle>');
+        if (sel) {
+          parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="9" fill="none" stroke="#1B6B50" stroke-width="1.5"/>');
+        }
+      }
+      for (const p of data.points) {
+        if (!p.policyIds.length) continue;
+        const cx = xAt(p.x).toFixed(1), cy = yAt(p.y).toFixed(1);
+        parts.push('<rect x="' + (Number(cx) - 3) + '" y="' + (Number(cy) - 3) + '" width="6" height="6" fill="none" stroke="#C8892A" stroke-width="1.5" transform="rotate(45 ' + cx + ' ' + cy + ')"><title>' + escapeHtml('policy pick: ' + p.policyIds.join(', ')) + '</title></rect>');
+      }
+      svg.innerHTML = parts.join('');
+      if (caption) {
+        caption.textContent = data.points.length + ' feasible allocations normalized; ' + data.frontierCount +
+          ' frontier points are keyboard focusable and apply on Enter. Gold diamonds mark the five policy picks.';
+      }
+    }
+
+    function renderLabSensitivitySvg(data) {
+      const svg = el('svg-lab-sensitivity');
+      const caption = el('caption-lab-sensitivity');
+      if (!svg) return;
+      if (!data || !data.ok || !Array.isArray(data.points) || data.points.length === 0) {
+        svg.innerHTML = '<text x="240" y="130" text-anchor="middle" fill="#B0412B" font-family="monospace" font-size="12">Budget sweep unavailable for this cap.</text>';
+        if (caption) caption.textContent = 'The sweep rejects unsafe or non-integer caps.';
+        return;
+      }
+      const W = 480, H = 260, padL = 58, padR = 16, padT = 16, padB = 40;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const minB = data.lowCents, maxB = data.highCents;
+      const spanB = Math.max(1, maxB - minB);
+      const costVals = data.points.filter((p) => p.costCents !== null).map((p) => p.costCents);
+      const minC = costVals.length ? Math.min.apply(null, costVals) : 0;
+      const maxC = costVals.length ? Math.max.apply(null, costVals) : 1;
+      const spanC = Math.max(1, maxC - minC);
+      const xAt = (b) => padL + ((b - minB) / spanB) * plotW;
+      const yAt = (c) => padT + plotH - ((c - minC) / spanC) * plotH;
+      const parts = [];
+      parts.push('<rect x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + plotH + '" fill="#FBF9F5" stroke="#D3CCC0"/>');
+      for (let g = 0; g <= 4; g++) {
+        const gy = (padT + (plotH * g) / 4).toFixed(1);
+        const val = Math.round(maxC - (spanC * g) / 4);
+        parts.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (padL + plotW) + '" y2="' + gy + '" stroke="#E5DFD3" stroke-dasharray="3,3"/>');
+        parts.push('<text x="' + (padL - 6) + '" y="' + (Number(gy) + 3) + '" text-anchor="end" font-family="monospace" font-size="8" fill="#494C50">' + escapeHtml(engine.formatUsd(val)) + '</text>');
+      }
+      for (let g = 0; g <= 4; g++) {
+        const gx = (padL + (plotW * g) / 4).toFixed(1);
+        const val = Math.round(minB + (spanB * g) / 4);
+        parts.push('<line x1="' + gx + '" y1="' + padT + '" x2="' + gx + '" y2="' + (padT + plotH) + '" stroke="#E5DFD3" stroke-dasharray="3,3"/>');
+        parts.push('<text x="' + gx + '" y="' + (padT + plotH + 14) + '" text-anchor="middle" font-family="monospace" font-size="8" fill="#494C50">' + escapeHtml(engine.formatUsd(val)) + '</text>');
+      }
+      parts.push('<text x="' + (padL + plotW / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-family="monospace" font-size="9" fill="#141516">budget cap sweep 70% to 130%</text>');
+      const costPts = data.points.filter((p) => p.costCents !== null);
+      if (costPts.length > 1) {
+        let d = 'M ' + xAt(costPts[0].budgetCents).toFixed(1) + ' ' + yAt(costPts[0].costCents).toFixed(1);
+        for (let i = 1; i < costPts.length; i++) {
+          const px = xAt(costPts[i].budgetCents).toFixed(1);
+          d += ' L ' + px + ' ' + yAt(costPts[i - 1].costCents).toFixed(1) +
+            ' L ' + px + ' ' + yAt(costPts[i].costCents).toFixed(1);
+        }
+        parts.push('<path d="' + d + '" fill="none" stroke="#1B4D8E" stroke-width="2"/>');
+      }
+      for (const p of data.points) {
+        const x = xAt(p.budgetCents).toFixed(1);
+        const capText = engine.formatUsd(p.budgetCents);
+        if (p.costCents === null) {
+          parts.push('<circle class="plot-focus" tabindex="0" role="button" data-budget="' + p.budgetCents +
+            '" aria-label="Cap ' + escapeHtml(capText) + ' infeasible; Enter applies this cap"' +
+            ' cx="' + x + '" cy="' + (padT + plotH) + '" r="3.4" fill="#B0412B">' +
+            '<title>' + escapeHtml(capText + ': infeasible') + '</title></circle>');
+        } else {
+          parts.push('<circle class="plot-focus" tabindex="0" role="button" data-budget="' + p.budgetCents +
+            '" aria-label="Cap ' + escapeHtml(capText) + ' feasible at ' + escapeHtml(engine.formatUsd(p.costCents)) + '; Enter applies this cap"' +
+            ' cx="' + x + '" cy="' + yAt(p.costCents).toFixed(1) + '" r="3.4" fill="#1B6B50">' +
+            '<title>' + escapeHtml(capText + ': ' + engine.formatUsd(p.costCents) + ' | ' + p.feasibleCount + ' plans') + '</title></circle>');
+        }
+      }
+      if (data.firstFeasibleBudgetCents !== null) {
+        const x = xAt(data.firstFeasibleBudgetCents).toFixed(1);
+        parts.push('<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#1B4D8E" stroke-dasharray="3 3"/>');
+        parts.push('<text x="' + (Number(x) + 3) + '" y="' + (padT + 10) + '" font-family="monospace" font-size="8" fill="#1B4D8E">first feasible</text>');
+      }
+      const cx = xAt(data.baseBudgetCents).toFixed(1);
+      parts.push('<line x1="' + cx + '" y1="' + padT + '" x2="' + cx + '" y2="' + (padT + plotH) + '" stroke="#C8892A" stroke-dasharray="5 3"/>');
+      svg.innerHTML = parts.join('');
+      if (caption) {
+        const save = state.solverResult && Number.isSafeInteger(state.solverResult.savingsVsGreedyCents)
+          ? engine.formatUsd(state.solverResult.savingsVsGreedyCents)
+          : 'n/a';
+        caption.textContent = 'First feasible sampled cap ' +
+          (data.firstFeasibleBudgetCents === null ? 'not reached' : engine.formatUsd(data.firstFeasibleBudgetCents)) +
+          '; minimum sampled cost ' + (data.minimumSampledCostCents === null ? 'n/a' : engine.formatUsd(data.minimumSampledCostCents)) +
+          '; gold marker is the active cap; savings vs greedy ' + save + '.';
+      }
+    }
+
+    function renderLabDigest() {
+      const dEl = el('lab-digest');
+      if (dEl) {
+        dEl.textContent = state.labBrief ? 'sha256 ' + state.labBrief.auditDigest : '-';
+      }
+    }
+
+    function renderSagaLab() {
+      const section = el('section-saga-lab');
+      if (!labApi) {
+        if (section) section.hidden = true;
+        return;
+      }
+      if (section) section.hidden = false;
+      let compare = null;
+      try {
+        compare = labApi.comparePolicies(state.scenarioId, Object.assign({}, labConstraints(), {
+          faultMode: state.labFaultMode,
+          targetMerchantId: state.faultMerchantId
+        }));
+      } catch (err) {
+        compare = null;
+      }
+      state.labCompare = compare;
+      const solvedForPlots = (compare && compare.solveResult) || state.solverResult;
+      try {
+        state.labPareto = labApi.paretoPlotData(solvedForPlots);
+      } catch (err) {
+        state.labPareto = null;
+      }
+      try {
+        state.labSensitivity = labApi.sensitivityPlotData(state.scenarioId, labConstraints(), state.sensitivitySteps);
+      } catch (err) {
+        state.labSensitivity = null;
+      }
+      try {
+        state.labBrief = labApi.buildAuditBrief({
+          scenarioId: state.scenarioId,
+          constraints: labConstraints(),
+          faultMode: state.labFaultMode,
+          activePolicy: state.policyId,
+          compare: compare,
+          sensitivity: state.labSensitivity
+        });
+      } catch (err) {
+        state.labBrief = null;
+      }
+      renderLabPolicyTable(compare);
+      renderLabParetoSvg(state.labPareto);
+      renderLabSensitivitySvg(state.labSensitivity);
+      renderLabDigest();
+    }
+
+    function applyPlanAsRecommended(plan, policyId) {
+      if (!plan || plan.feasible !== true || !state.solverResult || !state.solverResult.feasible) return false;
+      const scenario = engine.getScenarioById(state.scenarioId);
+      state.solverResult = Object.assign({}, state.solverResult, {
+        recommended: plan,
+        selectedMode: policyId ? 'POLICY_' + policyId : 'CUSTOM_FRONTIER'
+      });
+      syncFaultMerchantDropdown(state.solverResult);
+      try {
+        state.orderPayload = engine.buildPayPalOrderPayload(scenario, plan, {
+          intent: 'AUTHORIZE',
+          stageTag: 'PRIMARY_AUTH'
+        });
+        state.sagaResult = engine.simulateSagaExecution(scenario, state.solverResult, {
+          faultType: state.faultType,
+          targetMerchantId: state.faultMerchantId
+        });
+      } catch (err) {
+        state.orderPayload = null;
+        state.sagaResult = null;
+      }
+      renderModeCardsAndKpis(state.solverResult);
+      renderAllocationTables(state.solverResult);
+      renderParetoSvg(state.solverResult);
+      renderCostWaterfall(state.solverResult);
+      renderDiagnostics(state.solverResult);
+      renderSagaAndPayload();
+      renderSagaLab();
+      return true;
+    }
+
+    function applyPolicy(policyId) {
+      if (!labApi || !state.labCompare || typeof policyId !== 'string') return false;
+      const row = state.labCompare.rows.find((r) => r.policyId === policyId);
+      if (!row || !row.feasible || !row.plan) {
+        const status = el('lab-policy-status');
+        if (status) status.textContent = 'No feasible ' + policyId + ' plan under current constraints.';
+        return false;
+      }
+      state.policyId = policyId;
+      return applyPlanAsRecommended(row.plan, policyId);
+    }
+
+    function applyFrontierSignature(sig) {
+      if (typeof sig !== 'string') return false;
+      const all = (state.solverResult && Array.isArray(state.solverResult.allFeasibleSolutions))
+        ? state.solverResult.allFeasibleSolutions
+        : [];
+      const plan = all.find((s) => s.signature === sig);
+      if (plan) return applyPlanAsRecommended(plan, null);
+      return false;
+    }
+
+    function applyBudgetCap(cents) {
+      if (!Number.isSafeInteger(cents) || cents < 0 || cents > 100000000) return false;
+      state.budgetCents = cents + 0;
+      const inp = el('input-budget');
+      if (inp && inp.getAttribute) {
+        const min = Number(inp.getAttribute('min')) || 0;
+        const max = Number(inp.getAttribute('max')) || cents;
+        inp.value = String(Math.max(min, Math.min(max, cents)));
+      }
+      recomputeAndRender();
+      return true;
+    }
+
+    function buildShareUrl() {
+      if (!labApi) return null;
+      const hash = labApi.encodeBookmarkHash({
+        v: 1,
+        s: state.scenarioId,
+        p: state.policyId,
+        b: state.budgetCents,
+        f: state.labFaultMode,
+        n: state.sensitivitySteps
+      });
+      if (!hash) return null;
+      const base = locationRef && locationRef.href
+        ? String(locationRef.href).split('#')[0]
+        : '';
+      return { hash, url: base + hash };
+    }
+
+    function downloadText(filename, text, mime) {
+      try {
+        if (typeof URL === 'undefined' || !URL.createObjectURL || !documentRef.createElement) return false;
+        const blob = new Blob([text], { type: mime || 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = documentRef.createElement('a');
+        a.href = url;
+        a.download = filename;
+        if (documentRef.body && documentRef.body.appendChild) documentRef.body.appendChild(a);
+        if (a.click) a.click();
+        if (a.remove) a.remove();
+        else if (documentRef.body && documentRef.body.removeChild) documentRef.body.removeChild(a);
+        setTimeout(() => {
+          try { URL.revokeObjectURL(url); } catch (e) { /* noop */ }
+        }, 0);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function showLabExport(text, filename, mime) {
+      const preview = el('lab-export-preview');
+      if (preview) preview.textContent = text;
+      downloadText(filename, text, mime);
+    }
+
+    function runVerifyDemo() {
+      const status = el('lab-verify-status');
+      if (!labApi || !state.labBrief) {
+        if (status) status.textContent = 'No brief to verify yet.';
+        return;
+      }
+      const good = labApi.verifyAuditBrief(state.labBrief);
+      const tampered = labApi.tamperAuditBrief(state.labBrief);
+      const bad = labApi.verifyAuditBrief(tampered);
+      const short = state.labBrief.auditDigest.slice(0, 20);
+      status.textContent = 'sha256 ' + short + '... verifies ' + (good.ok ? 'clean' : 'FAILED') +
+        '. Mutated copy: ' + (bad.ok ? 'NOT DETECTED' : 'TAMPER DETECTED (' + bad.reason + ')') + '.';
+    }
+
+    function runSelfTests() {
+      const summary = el('lab-selftest-summary');
+      const list = el('list-lab-selftests');
+      if (!labApi) return;
+      if (summary) {
+        summary.textContent = 'running';
+        summary.className = 'lab-selftest-summary';
+      }
+      let res;
+      try {
+        res = labApi.runLabSelfTests();
+      } catch (err) {
+        res = { total: 0, passed: 0, ok: false, results: [] };
+      }
+      state.labSelfTestResult = res;
+      if (summary) {
+        summary.textContent = res.passed + '/' + res.total + ' passing';
+        summary.className = 'lab-selftest-summary ' + (res.ok ? 'pass' : 'fail');
+      }
+      if (list) {
+        list.innerHTML = res.results.map((r) => (
+          '<li class="' + (r.ok ? '' : 'lab-test-fail') + '">' +
+            '<span class="lab-test-id">' + escapeHtml(r.id) + '</span> ' + escapeHtml(r.name) +
+            '<span class="lab-test-detail">' + escapeHtml(r.detail) + '</span>' +
+          '</li>'
+        )).join('');
+      }
+    }
+
+    function setControlValue(id, value) {
+      const node = el(id);
+      if (node) node.value = String(value);
+    }
+
+    function restoreFromHash() {
+      if (!labApi || !locationRef || typeof locationRef.hash !== 'string') return false;
+      const decoded = labApi.decodeBookmarkHash(locationRef.hash);
+      if (!decoded.ok || !decoded.state) return false;
+      const s = decoded.state;
+      const sc = engine.getScenarioById(s.s);
+      state.scenarioId = sc.id;
+      state.budgetCents = s.b;
+      state.maxSlaHours = sc.defaultSlaHours;
+      state.minReliability = sc.defaultMinReliability;
+      state.sensitivitySteps = s.n;
+      state.labFaultMode = s.f;
+      state.policyId = s.p;
+      const fm = labApi.getFaultModeById(s.f);
+      if (fm && fm.kind !== 'duplicate-retry') {
+        state.faultType = fm.engineFault;
+      }
+      setControlValue('select-scenario', sc.id);
+      setControlValue('input-budget', s.b);
+      setControlValue('input-sla', sc.defaultSlaHours);
+      setControlValue('select-lab-fault', s.f);
+      setControlValue('range-lab-sensitivity', s.n);
+      setControlValue('range-sensitivity-steps', s.n);
+      setControlValue('select-fault-type', state.faultType);
+      const outSteps = el('output-sensitivity-steps');
+      if (outSteps) outSteps.textContent = String(s.n);
+      const labSteps = el('label-lab-sensitivity');
+      if (labSteps) labSteps.textContent = String(s.n);
+      return true;
+    }
+
     function recomputeAndRender() {
       const scenario = engine.getScenarioById(state.scenarioId);
       const solverResult = engine.solveCart(scenario, {
@@ -607,6 +1069,7 @@
       renderSensitivityCurve();
       renderDiagnostics(solverResult);
       renderSagaAndPayload();
+      renderSagaLab();
     }
 
     function bindEvents() {
@@ -712,14 +1175,160 @@
           const n = Number(e.target.value);
           state.sensitivitySteps = Number.isFinite(n) && n >= 4 ? Math.min(24, Math.floor(n)) : 12;
           if (outSteps) outSteps.textContent = String(state.sensitivitySteps);
+          const labRange = el('range-lab-sensitivity');
+          if (labRange) labRange.value = String(state.sensitivitySteps);
+          const labLbl = el('label-lab-sensitivity');
+          if (labLbl) labLbl.textContent = String(state.sensitivitySteps);
           renderSensitivityCurve();
+          renderSagaLab();
         });
+      }
+
+      const selLabFault = el('select-lab-fault');
+      if (selLabFault) {
+        selLabFault.addEventListener('change', (e) => {
+          state.labFaultMode = e.target.value;
+          renderSagaLab();
+        });
+      }
+
+      const tbodyLab = el('tbody-lab-policies');
+      if (tbodyLab) {
+        tbodyLab.addEventListener('click', (e) => {
+          const t = e.target;
+          let pid = t && t.getAttribute ? t.getAttribute('data-policy') : null;
+          if (!pid && t && t.closest) {
+            const row = t.closest('tr[data-policy]');
+            pid = row && row.getAttribute ? row.getAttribute('data-policy') : null;
+          }
+          if (pid) applyPolicy(pid);
+        });
+      }
+
+      const rangeLab = el('range-lab-sensitivity');
+      if (rangeLab) {
+        rangeLab.addEventListener('input', (e) => {
+          const n = Number(e.target.value);
+          state.sensitivitySteps = Number.isFinite(n) && n >= 4 ? Math.min(24, Math.floor(n)) : 12;
+          const labLbl = el('label-lab-sensitivity');
+          if (labLbl) labLbl.textContent = String(state.sensitivitySteps);
+          const outSteps2 = el('output-sensitivity-steps');
+          if (outSteps2) outSteps2.textContent = String(state.sensitivitySteps);
+          const other = el('range-sensitivity-steps');
+          if (other) other.value = String(state.sensitivitySteps);
+          renderSensitivityCurve();
+          renderSagaLab();
+        });
+      }
+
+      const labPareto = el('svg-lab-pareto');
+      if (labPareto) {
+        const actPareto = (sig) => { if (sig) applyFrontierSignature(sig); };
+        labPareto.addEventListener('click', (e) => {
+          const t = e.target;
+          actPareto(t && t.getAttribute ? t.getAttribute('data-sig') : null);
+        });
+        labPareto.addEventListener('keydown', (e) => {
+          const k = e.key || '';
+          if (k !== 'Enter' && k !== ' ') return;
+          const t = e.target;
+          const sig = t && t.getAttribute ? t.getAttribute('data-sig') : null;
+          if (sig) {
+            if (e.preventDefault) e.preventDefault();
+            actPareto(sig);
+          }
+        });
+      }
+
+      const labSens = el('svg-lab-sensitivity');
+      if (labSens) {
+        const actSens = (b) => { if (Number.isSafeInteger(b)) applyBudgetCap(b); };
+        labSens.addEventListener('click', (e) => {
+          const t = e.target;
+          actSens(t && t.getAttribute ? Number(t.getAttribute('data-budget')) : NaN);
+        });
+        labSens.addEventListener('keydown', (e) => {
+          const k = e.key || '';
+          if (k !== 'Enter' && k !== ' ') return;
+          const t = e.target;
+          const b = t && t.getAttribute ? Number(t.getAttribute('data-budget')) : NaN;
+          if (Number.isSafeInteger(b)) {
+            if (e.preventDefault) e.preventDefault();
+            actSens(b);
+          }
+        });
+      }
+
+      const btnJson = el('btn-lab-json');
+      if (btnJson) {
+        btnJson.addEventListener('click', () => {
+          if (!labApi || !state.labBrief) return;
+          showLabExport(labApi.exportJsonBrief(state.labBrief), 'cartconductor-audit-brief.json', 'application/json');
+        });
+      }
+
+      const btnCsv = el('btn-lab-csv');
+      if (btnCsv) {
+        btnCsv.addEventListener('click', () => {
+          if (!labApi || !state.labBrief) return;
+          showLabExport(labApi.exportCsvBrief(state.labBrief), 'cartconductor-audit-brief.csv', 'text/csv');
+        });
+      }
+
+      const btnMd = el('btn-lab-md');
+      if (btnMd) {
+        btnMd.addEventListener('click', () => {
+          if (!labApi || !state.labBrief) return;
+          showLabExport(labApi.exportMarkdownBrief(state.labBrief), 'cartconductor-audit-brief.md', 'text/markdown');
+        });
+      }
+
+      const btnShare = el('btn-lab-share');
+      if (btnShare) {
+        btnShare.addEventListener('click', () => {
+          const share = buildShareUrl();
+          const status = el('lab-verify-status');
+          const preview = el('lab-export-preview');
+          if (!share) {
+            if (status) status.textContent = 'Share link unavailable in this state.';
+            return;
+          }
+          if (locationRef) {
+            try { locationRef.hash = share.hash; } catch (err) { /* noop */ }
+          }
+          if (preview) preview.textContent = share.url;
+          if (status) {
+            status.textContent = 'Bookmark hash encodes scenario, policy, cap, fault mode and sensitivity samples.';
+          }
+          try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(share.url);
+            }
+          } catch (err) { /* noop */ }
+        });
+      }
+
+      const btnVerify = el('btn-lab-verify');
+      if (btnVerify) {
+        btnVerify.addEventListener('click', runVerifyDemo);
+      }
+
+      const btnSelfTest = el('btn-lab-selftest');
+      if (btnSelfTest) {
+        btnSelfTest.addEventListener('click', runSelfTests);
       }
     }
 
     function init() {
       bindEvents();
+      const restored = restoreFromHash();
       recomputeAndRender();
+      if (restored && labApi && state.labCompare) {
+        const row = state.labCompare.rows.find((r) => r.policyId === state.policyId);
+        if (row && row.feasible && row.plan) {
+          applyPlanAsRecommended(row.plan, state.policyId);
+        }
+      }
       return api;
     }
 
@@ -727,6 +1336,12 @@
       state,
       init,
       recomputeAndRender,
+      applyPolicy,
+      applyFrontierSignature,
+      applyBudgetCap,
+      buildShareUrl,
+      runVerifyDemo,
+      runSelfTests,
       selectScenario(scenarioId) {
         const sc = engine.getScenarioById(scenarioId);
         state.scenarioId = sc.id;
@@ -752,7 +1367,16 @@
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined' && window.CartConductorEngine) {
     window.addEventListener('DOMContentLoaded', () => {
-      window.cartConductorController = createController(window.CartConductorEngine, document).init();
+      const labModule = window.CartConductorSagaLab || null;
+      const labContext = labModule && labModule.createLab
+        ? labModule.createLab(window.CartConductorEngine)
+        : null;
+      window.cartConductorController = createController(
+        window.CartConductorEngine,
+        document,
+        labContext,
+        window.location
+      ).init();
     });
   }
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CartConductor: Multi-Vendor Agentic Checkout, Split-Capture and Saga Recovery</title>
   <meta name="description" content="Deterministic branch-and-bound multi-merchant cart optimizer, Pareto frontier analyzer, and PayPal Orders v2 compensating saga simulator.">
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -285,6 +286,86 @@
         <pre class="json-viewer" id="pre-paypal-json" tabindex="0" aria-label="PayPal Orders v2 JSON payload"></pre>
       </section>
     </div>
+
+    <!-- Saga Fault Matrix & Audit Lab -->
+    <section class="panel" id="section-saga-lab" aria-labelledby="heading-saga-lab">
+      <div class="panel-header">
+        <h2 id="heading-saga-lab" class="panel-title">6. Compensating Saga Fault Matrix &amp; Audit Lab</h2>
+      </div>
+
+      <div class="lab-controls">
+        <div class="control-field">
+          <label for="select-lab-fault" class="field-label">Injected Fault Mode</label>
+          <select id="select-lab-fault" class="field-input">
+            <option value="NONE">Nominal Settlement</option>
+            <option value="DECLINE_OUT_OF_STOCK">Inventory Decline at Capture</option>
+            <option value="AUTH_3DS_TIMEOUT">3DS Challenge Timeout</option>
+            <option value="SLA_SLIPPAGE">Dispatch SLA Timeout</option>
+            <option value="PARTIAL_STOCK">Partial Stock Shortfall</option>
+            <option value="DUPLICATE_RETRY">Duplicate Capture Retry</option>
+          </select>
+        </div>
+        <div class="control-field">
+          <label for="range-lab-sensitivity" class="field-label">Sensitivity Samples: <strong id="label-lab-sensitivity">12</strong></label>
+          <input id="range-lab-sensitivity" type="range" min="4" max="24" step="1" value="12" class="field-range">
+        </div>
+      </div>
+
+      <h3 class="sub-heading">Five-Policy Comparator Under Injected Fault</h3>
+      <div class="table-wrap">
+        <table class="ledger-table compact-table" id="table-lab-policies">
+          <thead>
+            <tr>
+              <th scope="col">Policy</th>
+              <th scope="col">Landed</th>
+              <th scope="col">Reliability</th>
+              <th scope="col">Saga Status</th>
+              <th scope="col">Captured</th>
+              <th scope="col">Voided</th>
+              <th scope="col">Net Settled</th>
+              <th scope="col">Proofs</th>
+              <th scope="col">Apply</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-lab-policies"></tbody>
+        </table>
+      </div>
+      <p class="lab-status-line" id="lab-policy-status"></p>
+
+      <div class="lab-charts-grid">
+        <div class="analytics-card">
+          <h3 class="sub-heading">Cost vs Reliability Pareto Map</h3>
+          <svg id="svg-lab-pareto" viewBox="0 0 480 260" role="img" aria-label="Normalized scatter of joint reliability versus landed cost with the Pareto frontier and policy picks"></svg>
+          <p class="analytics-caption" id="caption-lab-pareto"></p>
+        </div>
+        <div class="analytics-card">
+          <h3 class="sub-heading">Budget Sensitivity Step Curve</h3>
+          <svg id="svg-lab-sensitivity" viewBox="0 0 480 260" role="img" aria-label="Step curve of minimum sampled cost across budget caps from 70 to 130 percent"></svg>
+          <p class="analytics-caption" id="caption-lab-sensitivity"></p>
+        </div>
+      </div>
+
+      <h3 class="sub-heading">Audited Procurement Brief</h3>
+      <div class="lab-audit-bar">
+        <code class="lab-digest-code" id="lab-digest">-</code>
+        <div class="lab-audit-buttons">
+          <button type="button" class="tab-btn" id="btn-lab-json">JSON</button>
+          <button type="button" class="tab-btn" id="btn-lab-csv">CSV</button>
+          <button type="button" class="tab-btn" id="btn-lab-md">Markdown</button>
+          <button type="button" class="tab-btn" id="btn-lab-share">Copy Share Link</button>
+          <button type="button" class="tab-btn" id="btn-lab-verify">Verify &amp; Tamper Demo</button>
+        </div>
+      </div>
+      <p class="lab-status-line" id="lab-verify-status">Digest parity pending.</p>
+      <pre class="json-viewer lab-export-preview" id="lab-export-preview" tabindex="0" aria-label="Audited brief export preview"></pre>
+
+      <h3 class="sub-heading">Deterministic Self-Test Runner</h3>
+      <div class="lab-selftest-bar">
+        <button type="button" id="btn-lab-selftest" class="btn-primary">Run Self-Tests</button>
+        <span class="lab-selftest-summary" id="lab-selftest-summary">not run</span>
+      </div>
+      <ol class="lab-selftest-list" id="list-lab-selftests"></ol>
+    </section>
   </main>
 
   <footer class="ledger-footer">
@@ -295,6 +376,7 @@
   </footer>
 
   <script src="engine.js"></script>
+  <script src="saga-lab.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -4,10 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 class FakeElement {
-  constructor(id, tag) {
+  constructor(id, tag, doc) {
+    this._doc = doc || null;
     this.id = id;
     this.tagName = tag;
-    this.innerHTML = '';
+    this._innerHTML = '';
     this.textContent = '';
     this.value = '';
     this.hidden = false;
@@ -16,6 +17,15 @@ class FakeElement {
     this.attrs = {};
     this.dataset = {};
     this.listeners = {};
+  }
+  get innerHTML() {
+    return this._innerHTML;
+  }
+  set innerHTML(v) {
+    this._innerHTML = String(v);
+    if (this._doc && this._doc._registerIds) {
+      this._doc._registerIds(this._innerHTML);
+    }
   }
   addEventListener(type, fn) {
     (this.listeners[type] = this.listeners[type] || []).push(fn);
@@ -31,37 +41,48 @@ class FakeElement {
     }
   }
   getAttribute(k) {
-    return this.attrs[k];
+    return this.attrs[k] === undefined ? null : this.attrs[k];
+  }
+}
+
+function scanIds(doc, html) {
+  const tagRe = /<([a-zA-Z0-9]+)\b([^>]*)>/gi;
+  let m;
+  while ((m = tagRe.exec(html))) {
+    const tag = m[1].toUpperCase();
+    const attrsBlob = m[2];
+    const idMatch = /\bid="([^"]+)"/.exec(attrsBlob);
+    if (!idMatch) continue;
+    const id = idMatch[1];
+    if (doc.els[id]) continue;
+    const el = new FakeElement(id, tag, doc);
+    const attrRe = /([a-zA-Z][a-zA-Z0-9-]*)="([^"]*)"/g;
+    let am;
+    while ((am = attrRe.exec(attrsBlob))) {
+      const name = am[1];
+      const val = am[2];
+      if (name === 'id') continue;
+      if (name === 'class') el.className = val;
+      else if (name === 'value') el.value = val;
+      else el.setAttribute(name, val);
+    }
+    doc.els[id] = el;
   }
 }
 
 function createFakeDocument(htmlPath) {
   const html = fs.readFileSync(htmlPath || path.join(__dirname, '..', '..', 'index.html'), 'utf8');
-  const els = {};
-  const tagRe = /<([a-z0-9]+)\b([^>]*)\bid="([^"]+)"([^>]*)>/gi;
-  let m;
-  while ((m = tagRe.exec(html))) {
-    const tag = m[1].toUpperCase();
-    const attrsBlob = m[2] + ' ' + m[4];
-    const id = m[3];
-    const el = new FakeElement(id, tag);
-    const dataRe = /\b(data-[a-z0-9-]+|value)="([^"]*)"/gi;
-    let dm;
-    while ((dm = dataRe.exec(attrsBlob))) {
-      if (dm[1] === 'value') {
-        el.value = dm[2];
-      } else {
-        el.setAttribute(dm[1], dm[2]);
-      }
-    }
-    els[id] = el;
-  }
-  return {
-    els,
+  const doc = {
+    els: {},
+    _registerIds(h) {
+      scanIds(doc, h);
+    },
     getElementById(id) {
-      return els[id] || null;
+      return doc.els[id] || null;
     }
   };
+  scanIds(doc, html);
+  return doc;
 }
 
 module.exports = { createFakeDocument, FakeElement };

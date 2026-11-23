@@ -784,3 +784,170 @@ body {
     font-size: 1rem;
   }
 }
+
+/* Saga Fault Matrix & Audit Lab */
+.lab-controls {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.lab-status-line {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  margin: 0.55rem 0 0;
+}
+
+tr.lab-policy-row {
+  cursor: pointer;
+}
+
+tr.lab-policy-row:hover {
+  background-color: rgba(27, 77, 142, 0.07);
+}
+
+tr.lab-policy-row.lab-policy-active {
+  outline: 2px solid var(--navy-settlement);
+  outline-offset: -2px;
+}
+
+.apply-btn {
+  background-color: var(--navy-settlement);
+  color: #FFFFFF;
+  border: 1px solid var(--navy-settlement);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.apply-btn:hover {
+  background-color: #133B6E;
+}
+
+.apply-btn:disabled {
+  background-color: var(--border-rule);
+  border-color: var(--border-rule);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+.lab-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.lab-charts-grid svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-rule);
+  background-color: var(--bg-ledger);
+}
+
+.lab-audit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background-color: var(--bg-panel-elevated);
+  border: 1px solid var(--border-rule);
+  padding: 0.6rem 0.8rem;
+}
+
+.lab-audit-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.lab-digest-code {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--navy-settlement);
+  word-break: break-all;
+  flex: 1 1 340px;
+}
+
+.lab-export-preview {
+  margin-top: 0.6rem;
+  max-height: 260px;
+}
+
+.lab-selftest-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.lab-selftest-summary {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.lab-selftest-summary.pass {
+  color: var(--green-authorized);
+}
+
+.lab-selftest-summary.fail {
+  color: var(--vermilion-rollback);
+}
+
+.lab-selftest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.lab-selftest-list li {
+  background-color: var(--bg-panel-elevated);
+  border: 1px solid var(--border-rule);
+  border-left: 3px solid var(--green-authorized);
+  padding: 0.45rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+}
+
+.lab-selftest-list li.lab-test-fail {
+  border-left-color: var(--vermilion-rollback);
+}
+
+.lab-selftest-list .lab-test-id {
+  color: var(--navy-settlement);
+  font-weight: 600;
+}
+
+.lab-selftest-list .lab-test-detail {
+  color: var(--ink-muted);
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.plot-focus {
+  outline: none;
+}
+
+.plot-focus:focus {
+  stroke: var(--ink-primary);
+  stroke-width: 2.5;
+}
+
+@media (max-width: 1080px) {
+  .lab-charts-grid,
+  .lab-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
