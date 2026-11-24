@@ -320,3 +320,22 @@ test('DOM 26: changing strategy and scenario recomputes waterfall and diagnostic
   assert.match(el('svg-cost-waterfall').innerHTML, /landed \$/);
   assert.match(el('list-diagnostics').innerHTML, /Nodes explored/);
 });
+
+test('DOM 27: CSP meta locks the page to self-hosted resources and forbids plugin objects', () => {
+  const m = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/);
+  assert.ok(m, 'index.html is missing a Content-Security-Policy meta tag');
+  for (const d of ["default-src 'none'", "script-src 'self'", "connect-src 'none'", "object-src 'none'", "form-action 'none'"]) {
+    assert.ok(m[1].includes(d), 'CSP is missing ' + d);
+  }
+  assert.match(m[1], /img-src 'self' data:/, 'CSP must still allow the data: favicon');
+  const staticSrcs = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((s) => s[1]);
+  assert.ok(staticSrcs.length >= 3, 'expected the self-hosted script tags');
+  for (const src of staticSrcs) {
+    assert.ok(!/^https?:\/\//.test(src) && !src.startsWith('//'), 'script ' + src + ' is outside the self-only CSP script-src');
+  }
+  assert.equal(html.match(/<script>[\s\S]*?<\/script>/), null, 'inline scripts are forbidden by script-src self');
+  const inlineHandlers = html.match(/\son[a-z]+\s*=/g) || [];
+  assert.deepEqual(inlineHandlers, [], 'CSP cannot express inline handler permissions');
+  assert.equal(html.match(/<style[\s>]/), null, 'inline style block is forbidden by style-src self');
+  assert.equal(html.match(/ style=/), null, 'style attributes are forbidden by style-src self');
+});
