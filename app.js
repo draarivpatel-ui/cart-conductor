@@ -55,6 +55,33 @@
       return documentRef.getElementById(id);
     }
 
+    function syncResponsiveTableLabels() {
+      const pairs = [
+        ['table-sku-allocations', 'tbody-sku-allocations'],
+        ['table-merchant-units', 'tbody-merchant-units'],
+        ['table-catalog-merchants', 'tbody-catalog-merchants'],
+        ['table-lab-policies', 'tbody-lab-policies']
+      ];
+      for (const [tableId, tbodyId] of pairs) {
+        const table = el(tableId);
+        const tbody = el(tbodyId);
+        if (!table || !tbody || !table.querySelectorAll) continue;
+        const labels = Array.from(table.querySelectorAll('thead th')).map((th) => (th.textContent || '').replace(/\s+/g, ' ').trim());
+        const rows = Array.from(tbody.rows || tbody.children || []);
+        for (const row of rows) {
+          const cells = Array.from(row.cells || row.children || []);
+          cells.forEach((cell, idx) => {
+            if (!cell || !cell.setAttribute) return;
+            if (cell.hasAttribute && cell.hasAttribute('colspan')) {
+              cell.removeAttribute('data-label');
+            } else if (labels[idx]) {
+              cell.setAttribute('data-label', labels[idx]);
+            }
+          });
+        }
+      }
+    }
+
     function renderParetoSvg(solverResult) {
       const svg = el('svg-pareto-chart');
       if (!svg) return;
@@ -427,8 +454,14 @@
 
       const tabPrimary = el('tab-btn-primary-order');
       const tabSaga = el('tab-btn-saga-calls');
-      if (tabPrimary) tabPrimary.className = 'tab-btn' + (state.payloadView === 'PRIMARY_ORDER' ? ' active' : '');
-      if (tabSaga) tabSaga.className = 'tab-btn' + (state.payloadView === 'SAGA_CALLS' ? ' active' : '');
+      if (tabPrimary) {
+        tabPrimary.className = 'tab-btn' + (state.payloadView === 'PRIMARY_ORDER' ? ' active' : '');
+        tabPrimary.setAttribute('aria-selected', state.payloadView === 'PRIMARY_ORDER' ? 'true' : 'false');
+      }
+      if (tabSaga) {
+        tabSaga.className = 'tab-btn' + (state.payloadView === 'SAGA_CALLS' ? ' active' : '');
+        tabSaga.setAttribute('aria-selected', state.payloadView === 'SAGA_CALLS' ? 'true' : 'false');
+      }
 
       if (preEl) {
         if (state.payloadView === 'PRIMARY_ORDER') {
@@ -1070,6 +1103,7 @@
       renderDiagnostics(solverResult);
       renderSagaAndPayload();
       renderSagaLab();
+      syncResponsiveTableLabels();
     }
 
     function bindEvents() {

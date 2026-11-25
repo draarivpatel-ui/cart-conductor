@@ -279,12 +279,12 @@
           </div>
         </div>
 
-        <div class="inspector-tabs">
-          <button type="button" class="tab-btn active" id="tab-btn-primary-order" data-payload-view="PRIMARY_ORDER">Primary Orders v2 JSON</button>
-          <button type="button" class="tab-btn" id="tab-btn-saga-calls" data-payload-view="SAGA_CALLS">Saga REST Sequence</button>
+        <div class="inspector-tabs" role="tablist" aria-label="Payload inspector views">
+          <button type="button" class="tab-btn active" id="tab-btn-primary-order" data-payload-view="PRIMARY_ORDER" role="tab" aria-selected="true" aria-controls="pre-paypal-json">Primary Orders v2 JSON</button>
+          <button type="button" class="tab-btn" id="tab-btn-saga-calls" data-payload-view="SAGA_CALLS" role="tab" aria-selected="false" aria-controls="pre-paypal-json">Saga REST Sequence</button>
         </div>
 
-        <pre class="json-viewer" id="pre-paypal-json" tabindex="0" aria-label="PayPal Orders v2 JSON payload"></pre>
+        <pre class="json-viewer" id="pre-paypal-json" tabindex="0" role="tabpanel" aria-label="PayPal Orders v2 JSON payload"></pre>
       </section>
     </div>
 

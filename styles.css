@@ -945,6 +945,76 @@ tr.lab-policy-row.lab-policy-active {
   stroke-width: 2.5;
 }
 
+
+@media (max-width: 640px) {
+  .table-wrap {
+    overflow-x: visible;
+    border: 0;
+    background-color: transparent;
+  }
+
+  .ledger-table,
+  .ledger-table tbody,
+  .ledger-table tr,
+  .ledger-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .ledger-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .ledger-table tr {
+    background-color: var(--bg-panel-elevated);
+    border: 1px solid var(--border-rule);
+    margin-bottom: 0.65rem;
+  }
+
+  .ledger-table td {
+    display: grid;
+    grid-template-columns: minmax(7rem, 38%) minmax(0, 1fr);
+    gap: 0.55rem;
+    align-items: start;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .ledger-table td::before {
+    content: attr(data-label);
+    color: var(--ink-muted);
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .ledger-table td[colspan] {
+    display: block;
+  }
+
+  .ledger-table td[colspan]::before,
+  .ledger-table td:not([data-label])::before {
+    content: none;
+  }
+
+  .ledger-table td.num {
+    text-align: left;
+  }
+
+  .ledger-table td:last-child {
+    border-bottom: 0;
+  }
+
+  tr.lab-policy-row.lab-policy-active {
+    outline-offset: 0;
+  }
+}
+
 @media (max-width: 1080px) {
   .lab-charts-grid,
   .lab-controls {
