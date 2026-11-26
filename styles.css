@@ -6,6 +6,7 @@
   --ink-secondary: #494C50;
   --ink-muted: #5F6469;
   --border-rule: #D3CCC0;
+  --border-control: #767A7E;
   --border-strong: #141516;
   --navy-settlement: #1B4D8E;
   --green-authorized: #1B6B50;
@@ -159,7 +160,7 @@ body {
 
 .field-input {
   background-color: var(--bg-panel-elevated);
-  border: 1px solid var(--border-rule);
+  border: 1px solid var(--border-control);
   color: var(--ink-primary);
   font-family: var(--font-sans);
   font-size: 0.85rem;
@@ -188,7 +189,7 @@ body {
 .mode-card {
   text-align: left;
   background-color: var(--bg-panel-elevated);
-  border: 1px solid var(--border-rule);
+  border: 1px solid var(--border-control);
   padding: 0.8rem 1rem;
   border-radius: 3px;
   cursor: pointer;
@@ -593,7 +594,7 @@ body {
 
 .tab-btn {
   background-color: var(--bg-panel-elevated);
-  border: 1px solid var(--border-rule);
+  border: 1px solid var(--border-control);
   color: var(--ink-secondary);
   font-family: var(--font-mono);
   font-size: 0.78rem;
@@ -782,6 +783,20 @@ body {
   }
   .field-input {
     font-size: 1rem;
+  }
+  .field-input,
+  .field-range,
+  .analytics-control-row input[type="range"],
+  .mode-card,
+  .btn-primary,
+  .tab-btn,
+  .apply-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .field-range,
+  .analytics-control-row input[type="range"] {
+    height: 44px;
   }
 }
 
@@ -1062,7 +1077,7 @@ summary:focus-visible,
   .panel { padding: 3mm; }
   .panel-title { font-size: 15pt; }
   .sub-heading { font-size: 11pt; }
-  .ledger-table { font-size: 8pt; }
+  .ledger-table { font-size: 8pt; break-inside: avoid-page; }
   .ledger-table th, .ledger-table td { border-color: #999 !important; padding: 1.2mm 1.6mm; }
   tr, .saga-timeline li { break-inside: avoid; }
   a { color: #111 !important; text-decoration: none; }

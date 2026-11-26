@@ -68,6 +68,17 @@ test('HTML and CSS local assets exist and no runtime asset comes from a CDN', ()
   assert.doesNotMatch(scripts, /https?:\/\/(?:cdn\.|unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|fonts\.(?:googleapis|gstatic)\.com)/i);
 });
 
+test('interactive controls use 3:1 boundaries and mobile controls reserve 44px targets', () => {
+  assert.match(css, /--border-control: #767A7E/);
+  assert.match(css, /\.field-input \{[\s\S]*?border: 1px solid var\(--border-control\)/);
+  assert.match(css, /\.mode-card \{[\s\S]*?border: 1px solid var\(--border-control\)/);
+  assert.match(css, /\.tab-btn \{[\s\S]*?border: 1px solid var\(--border-control\)/);
+  const mobile = css.slice(css.indexOf('@media (max-width: 640px)'));
+  assert.match(mobile, /\.field-input,\s*\.field-range,\s*\.analytics-control-row input\[type="range"\],\s*\.mode-card,\s*\.btn-primary,\s*\.tab-btn,\s*\.apply-btn\s*\{[^}]*min-width: 44px/);
+  assert.match(mobile, /\.field-input,\s*\.field-range,\s*\.analytics-control-row input\[type="range"\],\s*\.mode-card,\s*\.btn-primary,\s*\.tab-btn,\s*\.apply-btn\s*\{[^}]*min-height: 44px/);
+  assert.match(mobile, /\.field-range,\s*\.analytics-control-row input\[type="range"\]\s*\{[^}]*height: 44px/);
+});
+
 test('print stylesheet resets paper output and focus and motion contracts stay present', () => {
   assert.match(css, /@media print\b/);
   assert.match(css, /:focus-visible\b/);
@@ -77,4 +88,5 @@ test('print stylesheet resets paper output and focus and motion contracts stay p
   assert.match(printableCss, /html, body \{ background: #fff !important; color: #111 !important; overflow: visible !important; \}/);
   assert.match(printableCss, /\.json-viewer \{ border: 1px solid #777; white-space: pre-wrap; word-break: break-word; \}/);
   assert.match(printableCss, /\.table-wrap, \.saga-timeline, \.lab-selftest-list, \.json-viewer, \.inspector-meta-bar \{ overflow: visible !important; max-height: none !important; \}/);
+  assert.match(printableCss, /\.ledger-table \{ font-size: 8pt; break-inside: avoid-page; \}/);
 });
