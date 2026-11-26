@@ -568,7 +568,8 @@
 
   function csvEscapeCell(value) {
     let s = value === null || value === undefined ? '' : String(value);
-    const formulaStart = /^[=+\-@\t\r]/.test(s);
+    const first = s.replace(/^[\s\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb]+/, '').charAt(0);
+    const formulaStart = /^[\t\r]/.test(s) || (first !== '' && '=+-@'.includes(first));
     const needsQuote = /[",\n\r]/.test(s);
     if (formulaStart) s = "'" + s;
     if (needsQuote) s = '"' + s.replace(/"/g, '""') + '"';

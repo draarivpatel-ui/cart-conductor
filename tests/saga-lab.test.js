@@ -538,6 +538,14 @@ test('LAB EXP 07: csvEscapeCell quotes commas, quotes and newlines', () => {
   assert.equal(lab.csvEscapeCell('a\nb'), '"a\nb"');
 });
 
+test('LAB EXP 07b: csvEscapeCell guards formula leads hidden by whitespace or invisible characters', () => {
+  for (const h of [' =CMD()', '\n+1', '\u200b@x', '\ufeff=2']) {
+    const esc = lab.csvEscapeCell(h);
+    const firstContentChar = esc.charAt(0) === '"' ? esc.charAt(1) : esc.charAt(0);
+    assert.equal(firstContentChar, "'", 'cell ' + JSON.stringify(h) + ' not escaped');
+  }
+});
+
 test('LAB EXP 08: csvEscapeCell leaves plain values untouched', () => {
   assert.equal(lab.csvEscapeCell('MERCH_APEX'), 'MERCH_APEX');
   assert.equal(lab.csvEscapeCell(60353), '60353');

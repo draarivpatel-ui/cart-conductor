@@ -46,6 +46,12 @@ test('DOM 02: styles.css defines the Stripe Press / FT ledger color tokens', () 
   assert.match(css, /--vermilion-rollback:\s*#B0412B/i);
 });
 
+test('DOM 02b: styles.css exposes keyboard focus rings and reduced-motion cancellation', () => {
+  assert.match(css, /:focus-visible\s*\{/);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  assert.match(css, /transition:\s*none\s*!important/);
+});
+
 test('DOM 03: package.json has zero external dependencies and uses node --test', () => {
   assert.deepEqual(pkg.dependencies || {}, {});
   assert.equal(pkg.scripts.test, 'node --test');

@@ -945,6 +945,25 @@ tr.lab-policy-row.lab-policy-active {
   stroke-width: 2.5;
 }
 
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+.plot-focus:focus-visible {
+  outline: 3px solid var(--navy-settlement);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
 
 @media (max-width: 640px) {
   .table-wrap {
