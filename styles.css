@@ -1040,3 +1040,32 @@ summary:focus-visible,
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+@media print {
+  @page { size: letter; margin: 12mm; }
+  :root { color-scheme: light; }
+  html, body { background: #fff !important; color: #111 !important; overflow: visible !important; }
+  *, *::before, *::after { animation: none !important; box-shadow: none !important; text-shadow: none !important; transition: none !important; }
+  .control-panel .controls-grid, .control-panel .mode-cards-row, .saga-controls, .lab-controls,
+  .lab-audit-buttons, .lab-selftest-bar, .inspector-tabs, button, input, select, textarea { display: none !important; }
+  .ledger-main { display: block; padding: 0; max-width: none; }
+  .ledger-header, .panel, .kpi-card, .spec-pill, .analytics-card, .table-wrap,
+  .saga-banner, .json-viewer, .lab-selftest-list li { background: #fff !important; color: #111 !important; border-color: #777 !important; }
+  .ledger-header { padding: 0 0 5mm; }
+  .panel, .kpi-strip, .two-col-layout, .analytics-card { break-inside: avoid; margin: 0 0 5mm; }
+  .two-col-layout, .analytics-grid, .lab-charts-grid, .kpi-strip { display: block; }
+  .kpi-card { margin-bottom: 2mm; }
+  .table-wrap, .saga-timeline, .lab-selftest-list, .json-viewer, .inspector-meta-bar { overflow: visible !important; max-height: none !important; }
+  .json-viewer { border: 1px solid #777; white-space: pre-wrap; word-break: break-word; }
+  .json-viewer, .kv-code, .lab-digest-code { color: #111 !important; }
+  .panel-note, .kpi-sub, .analytics-caption, .lab-status-line, .spec-label, .kv-label { color: #333 !important; }
+  .panel { padding: 3mm; }
+  .panel-title { font-size: 15pt; }
+  .sub-heading { font-size: 11pt; }
+  .ledger-table { font-size: 8pt; }
+  .ledger-table th, .ledger-table td { border-color: #999 !important; padding: 1.2mm 1.6mm; }
+  tr, .saga-timeline li { break-inside: avoid; }
+  a { color: #111 !important; text-decoration: none; }
+  svg { max-width: 100%; }
+  .ledger-footer { color: #333 !important; border-top: 1px solid #777; padding-top: 2mm; }
+}
