@@ -888,3 +888,8 @@ test('LAB X 14: hostile strings injected into a brief cannot break verification'
   });
   assert.equal(lab.verifyAuditBrief(b).ok, true);
 });
+
+test('LAB X 15: csvEscapeCell preserves legitimate negative numbers', () => {
+  assert.equal(L.csvEscapeCell(-125), '-125');
+  assert.equal(L.csvEscapeCell('-125'), "'-125");
+});

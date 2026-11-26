@@ -31,7 +31,7 @@ Node 18 or newer, with no package installation.
 npm test
 ```
 
-`npm test` runs 392 deterministic checks (392 passing as of the last verification run): solver, analytics, saga, receipt-chain, hygiene, mounted-controller, policy comparator, adversarial and bookmark-codec suites. The in-page lab also ships a self-test runner reporting 15/15 checks.
+`npm test` runs 393 deterministic checks (393 passing as of the last verification run): solver, analytics, saga, receipt-chain, hygiene, mounted-controller, policy comparator, adversarial and bookmark-codec suites. The in-page lab also ships a self-test runner reporting 15/15 checks.
 
 Open `index.html` directly or use a static server. Fonts are self hosted, with their licenses in `fonts/OFL.txt`.
 
